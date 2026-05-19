@@ -175,7 +175,7 @@ export default function App() {
       case 'control-tower':
         return <ControlTower />;
       case 'agent-workspace':
-        return <AgentDashboard />;
+        return <AgentDashboard user={user} />;
       case 'lead-engine':
         return <LeadEngine />;
       case 'pipeline-builder':
