@@ -19,37 +19,44 @@ import {
   updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db } from '../firebase'; // Removed auth, we don't need it here anymore!
 
-export default function AgentDashboard() {
+// FIXED: Added { user } as a prop
+export default function AgentDashboard({ user }) { 
   const [leads, setLeads] = useState([]);
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' (Smart Queue) or 'leads' (Lead Bank)
+  const [activeTab, setActiveTab] = useState('tasks');
   const appId = 'edivy-crm-vault';
 
   useEffect(() => {
-    if (!db) {
-      setLoading(false);
+    // Wait until the user prop is fully loaded
+    if (!db || !user?.id) {
       return;
     }
+    
     const unsub = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'leads'),
       (snap) => {
         const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        const currentUser = auth?.currentUser;
+        
+        // FIXED: Filter using the reliable user.id passed down from App.tsx
+        // Also includes 'staff' fallback for your hardcoded dropdown option
         const myLeads = all.filter(
           (l) =>
-            l.assigned_to === currentUser?.uid ||
-            l.assigned_to === 'staff' ||
-            l.assigned_to === 'staff_001'
+            l.assigned_to === user.id ||
+            l.assigned_to === 'staff' 
         );
+        
+        // Sort highest score to the top!
+        myLeads.sort((a, b) => (b.score || 0) - (a.score || 0));
+        
         setLeads(myLeads);
         setLoading(false);
       }
     );
     return () => unsub();
-  }, []);
+  }, [user]); // Re-run if the user changes
 
   const handleOutcome = async (leadId, outcome) => {
     if (!db) return;
@@ -77,8 +84,6 @@ export default function AgentDashboard() {
     } catch (e) {}
   };
 
-  // FILTER LOGIC FOR TABS
-  // Smart Queue = New Leads or Hot Leads. Lead Bank = Everything else.
   const displayedLeads =
     activeTab === 'tasks'
       ? leads.filter(
