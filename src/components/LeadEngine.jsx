@@ -197,6 +197,14 @@ export default function LeadEngine() {
     reader.readAsText(file);
   };
 
+  // FIXED: Actually opens the modal as a blank slate
+  const openNewModal = () => {
+    setEditingId(null);
+    setSchoolName(''); setLocation(''); setContactName(''); setContactRole('Principal');
+    setPhone(''); setEmail(''); setPc1('Middle-Income'); setPc2('No System'); setPc3('Marks-Only');
+    setShowModal(true);
+  };
+
   const openEditModal = (lead) => {
     setEditingId(lead.id);
     setSchoolName(lead.school_name || '');
@@ -250,7 +258,8 @@ export default function LeadEngine() {
             <Download className="w-4 h-4 mr-2 text-slate-400" /> Export
           </button>
 
-          <button onClick={closeModal} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl flex items-center shadow-lg text-xs uppercase tracking-widest transition-all active:scale-95">
+          {/* FIXED: onClick={openNewModal} */}
+          <button onClick={openNewModal} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl flex items-center shadow-lg text-xs uppercase tracking-widest transition-all active:scale-95">
             <Plus className="w-5 h-5 mr-2" /> New B2B Lead
           </button>
         </div>
