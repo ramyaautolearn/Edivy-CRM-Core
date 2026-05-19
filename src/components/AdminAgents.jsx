@@ -8,8 +8,9 @@ export default function AdminAgents() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false); // FIXED: Added this to track edit mode
   
-  // Form State (Now includes Password)
+  // Form State
   const [agentId, setAgentId] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('staff');
@@ -18,7 +19,6 @@ export default function AdminAgents() {
 
   const appId = 'edivy-crm-vault';
 
-  // 1. LISTEN TO DATABASE IN REAL-TIME
   useEffect(() => {
     if (!db) { setLoading(false); return; }
 
@@ -31,7 +31,6 @@ export default function AdminAgents() {
     return () => unsub();
   }, []);
 
-  // 2. SAVE CHANGES PERMANENTLY TO FIREBASE
   const handleSaveAgent = async (e) => {
     e.preventDefault();
     if (!db || !agentId.trim()) return;
@@ -44,16 +43,16 @@ export default function AdminAgents() {
         name,
         role,
         email: email.toLowerCase().trim(),
-        temporary_password: password, // Saves the password so Admin can reference it
+        temporary_password: password, 
         updatedAt: serverTimestamp()
       });
       
-      // Reset Form & Close Modal
       setAgentId('');
       setName('');
       setRole('staff');
       setEmail('');
       setPassword('');
+      setIsEditing(false);
       setShowModal(false);
     } catch (error) {
       console.error("Error saving agent details:", error);
@@ -63,11 +62,12 @@ export default function AdminAgents() {
   };
 
   const openEditModal = (agent) => {
+    setIsEditing(true); // Locks the ID field only for existing agents
     setAgentId(agent.id);
     setName(agent.name || '');
     setRole(agent.role || 'staff');
     setEmail(agent.email || '');
-    setPassword(agent.temporary_password || ''); // Loads the password if editing
+    setPassword(agent.temporary_password || ''); 
     setShowModal(true);
   };
 
@@ -82,7 +82,7 @@ export default function AdminAgents() {
           </h2>
           <p className="text-slate-500 font-medium text-xs uppercase tracking-widest mt-1">Manage live team credentials and profile access</p>
         </div>
-        <button onClick={() => { setAgentId(''); setName(''); setEmail(''); setPassword(''); setRole('staff'); setShowModal(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl flex items-center shadow-lg text-xs uppercase tracking-widest transition-all active:scale-95">
+        <button onClick={() => { setIsEditing(false); setAgentId(''); setName(''); setEmail(''); setPassword(''); setRole('staff'); setShowModal(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl flex items-center shadow-lg text-xs uppercase tracking-widest transition-all active:scale-95">
           <Plus className="w-5 h-5 mr-2" /> Add Agent
         </button>
       </div>
@@ -138,7 +138,7 @@ export default function AdminAgents() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md my-8 animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
-              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{agentId ? 'Update Credentials' : 'New Identity Registration'}</h3>
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{isEditing ? 'Update Credentials' : 'New Identity Registration'}</h3>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-700 bg-white rounded-full p-1.5 shadow-sm border border-slate-200"><X className="w-5 h-5" /></button>
             </div>
             
@@ -146,7 +146,8 @@ export default function AdminAgents() {
                <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Login ID</label>
-                    <input type="text" value={agentId} onChange={e => setAgentId(e.target.value)} disabled={!!agentId} required placeholder="staff_002" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none uppercase tracking-wider disabled:opacity-50" />
+                    {/* FIXED: Input is now disabled only if isEditing is true */}
+                    <input type="text" value={agentId} onChange={e => setAgentId(e.target.value)} disabled={isEditing} required placeholder="staff_002" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none uppercase tracking-wider disabled:opacity-50" />
                  </div>
                  <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">System Role</label>
@@ -165,7 +166,6 @@ export default function AdminAgents() {
                   <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="jane@edivy.com" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" />
                </div>
                
-               {/* NEW PASSWORD FIELD */}
                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
                   <label className="block text-[10px] font-black text-indigo-800 uppercase tracking-widest mb-2 flex items-center">
                     <Lock className="w-3 h-3 mr-1.5" /> Account Password
