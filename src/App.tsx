@@ -27,12 +27,13 @@ import AdminAgents from './components/AdminAgents';
 // 2. YOUR REAL FIREBASE RECONNECTED!
 // ==========================================
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from './firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { auth, db } from './firebase'; 
 
 // --- LOGIN SCREEN ---
 function LoginScreen({ onLogin }) {
-  const [email, setEmail] = useState('admin@edivy.com');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -42,7 +43,7 @@ function LoginScreen({ onLogin }) {
     setIsLoggingIn(true);
 
     try {
-      // Using YOUR exact Firebase Auth method
+      // 1. Authenticate with Firebase Secure Vault
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email,
@@ -50,18 +51,30 @@ function LoginScreen({ onLogin }) {
       );
       const firebaseUser = userCredential.user;
 
-      if (firebaseUser.email.toLowerCase().includes('admin')) {
+      // 2. Look up their real profile in the CRM Database
+      const q = query(
+        collection(db, 'artifacts', 'edivy-crm-vault', 'public', 'data', 'users'), 
+        where('email', '==', firebaseUser.email.toLowerCase())
+      );
+      
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        // 3. Match Found! Use their real name and role
+        const userData = querySnapshot.docs[0].data();
         onLogin({
-          id: 1,
-          name: 'System Admin',
-          role: 'admin',
+          id: querySnapshot.docs[0].id,
+          name: userData.name,
+          role: userData.role,
           email: firebaseUser.email,
         });
       } else {
+        // Fallback just in case the profile isn't fully set up yet
+        const isAdmin = firebaseUser.email.toLowerCase().includes('admin');
         onLogin({
-          id: 2,
-          name: 'John Doe',
-          role: 'staff',
+          id: firebaseUser.uid,
+          name: firebaseUser.email.split('@')[0], // Uses the first part of their email as a name
+          role: isAdmin ? 'admin' : 'staff',
           email: firebaseUser.email,
         });
       }
@@ -105,6 +118,7 @@ function LoginScreen({ onLogin }) {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your corporate email"
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium"
                 required
               />
@@ -117,6 +131,7 @@ function LoginScreen({ onLogin }) {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium"
                 required
               />
@@ -131,11 +146,8 @@ function LoginScreen({ onLogin }) {
           </form>
 
           <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between text-xs font-bold text-slate-400">
-            <span className="cursor-pointer hover:text-indigo-600">
-              Admin: admin@edivy.com
-            </span>
-            <span className="cursor-pointer hover:text-indigo-600">
-              Staff: staff@edivy.com
+            <span className="hover:text-indigo-600 transition-colors">
+              Protected by Edivy Security
             </span>
           </div>
         </div>
@@ -199,7 +211,7 @@ export default function App() {
                 user.role === 'admin' ? 'bg-emerald-500' : 'bg-blue-500'
               }`}
             ></div>
-            <p className="text-sm font-bold text-white">{user.name}</p>
+            <p className="text-sm font-bold text-white truncate pr-2">{user.name}</p>
           </div>
         </div>
 
@@ -288,7 +300,6 @@ export default function App() {
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 overflow-y-auto bg-slate-50/50">
         <div className="p-8 max-w-7xl mx-auto">
-          {/* This renders your real components! */}
           {renderContent()}
         </div>
       </div>
