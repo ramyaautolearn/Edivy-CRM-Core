@@ -1,8 +1,89 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog
-} from 'lucide-react';
-import { mockApi } from '../data/mockDb';
+import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog } from 'lucide-react';
+
+// --- NEW ROCK-SOLID PIPELINE DATABASE ENGINE ---
+const STORAGE_KEY = 'edivy_pipeline_data_v2';
+
+const getDb = () => {
+  const data = localStorage.getItem(STORAGE_KEY);
+  if (data) return JSON.parse(data);
+  return {
+    versions: [{ id: 'v1', name: 'v1.0 - Active Pipeline', status: 'active' }],
+    stages: [],
+    tasks: []
+  };
+};
+
+const saveDb = (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+const pipelineApi = {
+  getPipelineVersions: async () => getDb().versions,
+  setActiveVersion: async (id) => {
+    const db = getDb();
+    db.versions.forEach(v => v.status = (v.id === id ? 'active' : 'draft'));
+    saveDb(db);
+    return db.versions;
+  },
+  duplicatePipelineVersion: async (vId, newName) => {
+    const db = getDb();
+    const newVersionId = 'v_' + Date.now();
+    db.versions.push({ id: newVersionId, name: newName, status: 'draft' });
+    saveDb(db);
+    return db.versions;
+  },
+  getPipelineStages: async (vId) => getDb().stages.filter(s => s.version_id === vId).sort((a,b) => a.order - b.order),
+  saveStage: async (stage) => {
+    const db = getDb();
+    db.stages.push({ ...stage, id: 'stage_' + Date.now(), order: db.stages.length });
+    saveDb(db);
+  },
+  updateStage: async (id, name) => {
+    const db = getDb();
+    const s = db.stages.find(s => s.id === id);
+    if (s) s.name = name;
+    saveDb(db);
+  },
+  deleteStage: async (id) => {
+    const db = getDb();
+    db.stages = db.stages.filter(s => s.id !== id);
+    db.tasks = db.tasks.filter(t => t.stage_id !== id);
+    saveDb(db);
+  },
+  reorderStages: async (ids) => {
+    const db = getDb();
+    ids.forEach((id, idx) => {
+      const s = db.stages.find(x => x.id === id);
+      if (s) s.order = idx;
+    });
+    saveDb(db);
+  },
+  getTaskTemplates: async (sId) => getDb().tasks.filter(t => t.stage_id === sId).sort((a,b) => a.order - b.order),
+  saveTaskTemplate: async (task) => {
+    const db = getDb();
+    if (task.id) {
+      const idx = db.tasks.findIndex(t => t.id === task.id);
+      if (idx > -1) db.tasks[idx] = { ...db.tasks[idx], ...task };
+    } else {
+      db.tasks.push({ ...task, id: 'task_' + Date.now(), order: db.tasks.length });
+    }
+    saveDb(db);
+  },
+  deleteTaskTemplate: async (id) => {
+    const db = getDb();
+    db.tasks = db.tasks.filter(t => t.id !== id); // Flawless specific deletion
+    saveDb(db);
+  },
+  reorderTasks: async (ids) => {
+    const db = getDb();
+    ids.forEach((id, idx) => {
+      const t = db.tasks.find(x => x.id === id);
+      if (t) t.order = idx;
+    });
+    saveDb(db);
+  }
+};
+// ------------------------------------------------
+
 
 export default function AdminPipelineBuilder() {
   const [versions, setVersions] = useState([]);
@@ -15,21 +96,10 @@ export default function AdminPipelineBuilder() {
   const [isAddingStage, setIsAddingStage] = useState(false);
   const [newStageName, setNewStageName] = useState('');
 
-  // UPGRADED TASK STATE
   const [newTask, setNewTask] = useState({
-    id: null,
-    title: '',
-    description: '',
-    execution_type: 'human', // NEW: human, auto, ai
-    is_mandatory: true,
-    delay_value: 0,
-    delay_unit: 'minutes', // Default to faster execution
-    type: 'whatsapp',
-    priority: 2,
-    ai_guidance: '', // NEW: Rules for the AI assist panel
-    failure_action: 'none', // NEW: e2_eject, reassign, update_lead
-    resource_text: '',
-    resource_url: '',
+    id: null, title: '', description: '', execution_type: 'human', is_mandatory: true,
+    delay_value: 0, delay_unit: 'minutes', type: 'whatsapp', priority: 2,
+    ai_guidance: '', failure_action: 'none', resource_text: '', resource_url: '',
   });
   
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
@@ -37,7 +107,7 @@ export default function AdminPipelineBuilder() {
   useEffect(() => { loadVersions(); }, []);
 
   const loadVersions = async () => {
-    const vData = await mockApi.getPipelineVersions();
+    const vData = await pipelineApi.getPipelineVersions();
     setVersions(vData);
     if (vData.length > 0 && !selectedVersion)
       setSelectedVersion(vData.find((v) => v.status === 'active') || vData[0]);
@@ -47,27 +117,27 @@ export default function AdminPipelineBuilder() {
 
   const loadStages = async (vId = selectedVersion?.id) => {
     if (!vId) return;
-    const data = await mockApi.getPipelineStages(vId);
+    const data = await pipelineApi.getPipelineStages(vId);
     setStages(data);
     if (data.length > 0) setSelectedStage(data[0]);
     else { setSelectedStage(null); setTasks([]); }
   };
 
   useEffect(() => {
-    if (selectedStage) mockApi.getTaskTemplates(selectedStage.id).then(setTasks);
+    if (selectedStage) pipelineApi.getTaskTemplates(selectedStage.id).then(setTasks);
   }, [selectedStage]);
 
   const handleCreateVersion = async () => {
-    const newName = prompt('Enter a name for the new Draft version (e.g. v2.0 - Fast Track):');
+    const newName = prompt('Enter a name for the new Draft version:');
     if (!newName) return;
-    const updatedVersions = await mockApi.duplicatePipelineVersion(selectedVersion.id, newName);
+    const updatedVersions = await pipelineApi.duplicatePipelineVersion(selectedVersion.id, newName);
     setVersions(updatedVersions);
     setSelectedVersion(updatedVersions[updatedVersions.length - 1]);
   };
 
   const handleMakeActive = async () => {
     if (window.confirm(`Make ${selectedVersion.name} the LIVE active pipeline?`)) {
-      const updatedVersions = await mockApi.setActiveVersion(selectedVersion.id);
+      const updatedVersions = await pipelineApi.setActiveVersion(selectedVersion.id);
       setVersions([...updatedVersions]);
       alert('Pipeline is now live!');
     }
@@ -75,13 +145,13 @@ export default function AdminPipelineBuilder() {
 
   const handleSaveNewStage = async () => {
     if (!newStageName.trim()) return;
-    await mockApi.saveStage({ name: newStageName, version_id: selectedVersion.id });
+    await pipelineApi.saveStage({ name: newStageName, version_id: selectedVersion.id });
     setNewStageName(''); setIsAddingStage(false); loadStages();
   };
 
   const handleDeleteStage = async (id) => {
     if (window.confirm('Delete this stage?')) {
-      await mockApi.deleteStage(id);
+      await pipelineApi.deleteStage(id);
       if (selectedStage?.id === id) setSelectedStage(null);
       loadStages();
     }
@@ -89,7 +159,7 @@ export default function AdminPipelineBuilder() {
 
   const handleSaveStageEdit = async (id) => {
     if (!stageNameInput.trim()) return;
-    await mockApi.updateStage(id, stageNameInput);
+    await pipelineApi.updateStage(id, stageNameInput);
     setIsEditingStage(null); loadStages();
   };
 
@@ -104,12 +174,9 @@ export default function AdminPipelineBuilder() {
     if (task) {
       const { val, unit } = parseOffset(task.offset_days || 0);
       setNewTask({ 
-        ...task, 
-        delay_value: val, 
-        delay_unit: unit,
+        ...task, delay_value: val, delay_unit: unit,
         execution_type: task.execution_type || 'human',
-        ai_guidance: task.ai_guidance || '',
-        failure_action: task.failure_action || 'none'
+        ai_guidance: task.ai_guidance || '', failure_action: task.failure_action || 'none'
       });
     } else {
       setNewTask({
@@ -133,15 +200,15 @@ export default function AdminPipelineBuilder() {
       offset_days: newTask.delay_value * multiplier,
     };
     
-    await mockApi.saveTaskTemplate(finalTaskPayload);
-    setTasks(await mockApi.getTaskTemplates(selectedStage.id));
+    await pipelineApi.saveTaskTemplate(finalTaskPayload);
+    setTasks(await pipelineApi.getTaskTemplates(selectedStage.id));
     setIsTaskFormOpen(false);
   };
 
   const handleDeleteTask = async (id) => {
     if (window.confirm('Delete task?')) {
-      await mockApi.deleteTaskTemplate(id);
-      setTasks(await mockApi.getTaskTemplates(selectedStage.id));
+      await pipelineApi.deleteTaskTemplate(id);
+      setTasks(await pipelineApi.getTaskTemplates(selectedStage.id));
     }
   };
 
@@ -153,6 +220,7 @@ export default function AdminPipelineBuilder() {
     newStages[index] = newStages[index + direction];
     newStages[index + direction] = temp;
     setStages(newStages);
+    await pipelineApi.reorderStages(newStages.map(s => s.id));
   };
 
   const moveTask = async (e, index, direction) => {
@@ -163,9 +231,9 @@ export default function AdminPipelineBuilder() {
     newTasks[index] = newTasks[index + direction];
     newTasks[index + direction] = temp;
     setTasks(newTasks);
+    await pipelineApi.reorderTasks(newTasks.map(t => t.id));
   };
 
-  // Helper for Badges
   const renderExecutionBadge = (type) => {
     switch(type) {
       case 'ai': return <span className="flex items-center text-[9px] bg-purple-100 text-purple-700 font-black px-2 py-0.5 rounded border border-purple-200 uppercase tracking-widest"><Bot className="w-3 h-3 mr-1" /> AI-Assisted</span>;
@@ -178,7 +246,6 @@ export default function AdminPipelineBuilder() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] pb-6">
-      {/* VERSION HEADER */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 mb-6 flex justify-between items-center shrink-0">
         <div>
           <h2 className="text-xl font-black text-gray-800 flex items-center">
@@ -206,7 +273,6 @@ export default function AdminPipelineBuilder() {
       </div>
 
       <div className="flex flex-1 gap-6 overflow-hidden">
-        {/* STAGE LIST */}
         <div className="w-1/3 bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex flex-col">
           <div className="flex justify-between items-center mb-4 border-b pb-3">
             <h3 className="font-bold text-gray-800">Engine 1 Stages</h3>
@@ -252,7 +318,6 @@ export default function AdminPipelineBuilder() {
           </div>
         </div>
 
-        {/* TASK LIST */}
         <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative">
           {!selectedStage ? (
             <div className="flex-1 flex items-center justify-center text-gray-400">Select a stage</div>
@@ -295,7 +360,6 @@ export default function AdminPipelineBuilder() {
                 )}
               </div>
               
-              {/* UPGRADED TASK FORM */}
               {isTaskFormOpen && (
                 <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-10 flex flex-col border-t-4 border-indigo-500">
                   <div className="flex justify-between items-center p-5 border-b border-gray-200 bg-slate-50">
