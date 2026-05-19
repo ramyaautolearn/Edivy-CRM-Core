@@ -176,10 +176,10 @@ export default function AgentDashboard({ user }) {
                   {/* Target Profile */}
                   <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center">
                     <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Target Profile</h5>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-2 gap-y-4 text-center sm:text-left">
                       <div className="flex flex-col gap-1">
                         <span className="text-slate-400 font-bold uppercase tracking-widest text-[9px]">Tier:</span>
-                        <span className="font-bold text-slate-800 text-xs">{selectedLead.pc1 || 'N/A'}</span>
+                        <span className="font-bold text-slate-800 text-xs break-words">{selectedLead.pc1 || 'N/A'}</span>
                       </div>
                       <div className="flex flex-col gap-1">
                         <span className="text-slate-400 font-bold uppercase tracking-widest text-[9px]">Tech:</span>
