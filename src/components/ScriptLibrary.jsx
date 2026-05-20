@@ -280,10 +280,22 @@ Happy to send over a 1-pager showing exactly how this data architecture works if
               
             </form>
 
-            <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-end shrink-0">
-              <button type="submit" form="script-form" className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-black uppercase tracking-widest hover:bg-slate-800 transition shadow-lg flex items-center">
-                <CheckCircle2 className="w-5 h-5 mr-2" /> Save to Vault
-              </button>
+            <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-between items-center shrink-0">
+              <div>
+                {editingScript.id && (
+                  <button type="button" onClick={() => { handleDelete(editingScript.id); setIsScriptModalOpen(false); }} className="text-red-500 font-bold px-4 py-2 hover:bg-red-50 rounded-xl flex items-center transition">
+                    <Trash2 className="w-4 h-4 mr-2" /> Delete Script
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setIsScriptModalOpen(false)} className="px-6 py-3.5 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition">
+                  Cancel
+                </button>
+                <button type="submit" form="script-form" className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-black uppercase tracking-widest hover:bg-slate-800 transition shadow-lg flex items-center">
+                  <CheckCircle2 className="w-5 h-5 mr-2" /> Save to Vault
+                </button>
+              </div>
             </div>
           </div>
         </div>
