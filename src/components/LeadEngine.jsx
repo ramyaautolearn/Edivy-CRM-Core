@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Search, Plus, MapPin, User, Star, ShieldCheck, Edit, Trash2, X, Zap, Users, Target, Flame, Download, UploadCloud
+  Search, Plus, MapPin, User, Star, ShieldCheck, Edit, Trash2, X, Zap, Users, Target, Flame, Download, UploadCloud, RefreshCw
 } from 'lucide-react';
 import {
   collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch
@@ -29,6 +29,7 @@ export default function LeadEngine() {
   const [pc1, setPc1] = useState('Middle-Income');
   const [pc2, setPc2] = useState('No System');
   const [pc3, setPc3] = useState('Marks-Only');
+  const [engineTarget, setEngineTarget] = useState(1); // NEW: Manual Engine Control
 
   useEffect(() => {
     if (!db) return;
@@ -72,7 +73,8 @@ export default function LeadEngine() {
 
     setIsAdding(true);
     const score = calculateEdivyScore(pc1, pc2, pc3, contactRole);
-    const engine = score >= 70 ? 1 : 2;
+    // Use the manually selected engine target from the form!
+    const engine = Number(engineTarget);
 
     const leadData = {
       school_name: schoolName,
@@ -86,7 +88,8 @@ export default function LeadEngine() {
       pc3,
       score,
       engine,
-      stage_name: engine === 1 ? 'New Lead' : 'Awakening (Entry)',
+      // Only set stage name if creating new, otherwise preserve their current stage in that engine
+      ...( !editingId && { stage_name: engine === 1 ? 'New Lead' : 'Awakening (Entry)' } ),
       last_activity_at: serverTimestamp(),
     };
 
@@ -110,7 +113,27 @@ export default function LeadEngine() {
     }
   };
 
-  // --- CSV EXPORT ---
+  // --- MANUAL ADMIN CONTROLS (TABLE SWAPS) ---
+  const handleAssign = async (leadId, agentId) => {
+    if (!db) return;
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { assigned_to: agentId || null });
+  };
+
+  const handleEngineChange = async (leadId, newEngineValue) => {
+    if (!db) return;
+    const engineNum = Number(newEngineValue);
+    
+    // Automatically reset their stage to the starting line of whichever engine they are dropped into
+    const initialStage = engineNum === 1 ? 'New Lead' : 'Awakening (Entry)';
+    
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { 
+      engine: engineNum,
+      stage_name: initialStage,
+      last_activity_at: serverTimestamp()
+    });
+  };
+
+  // --- CSV LOGIC ---
   const handleExportCSV = () => {
     const headers = ['School Name', 'Location', 'Contact Name', 'Role', 'Phone', 'Email', 'Tier', 'Tech', 'Vision', 'Score', 'Engine'];
     const csvContent = [
@@ -129,7 +152,6 @@ export default function LeadEngine() {
     link.click();
   };
 
-  // --- CSV IMPORT ---
   const handleImportCSV = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -148,7 +170,7 @@ export default function LeadEngine() {
         let count = 0;
 
         for (let i = 1; i < rows.length; i++) {
-          if (rows[i].length < 2 || !rows[i][0]) continue; // Skip empty rows
+          if (rows[i].length < 2 || !rows[i][0]) continue; 
           
           const rowData = {};
           headers.forEach((header, index) => { rowData[header] = rows[i][index]; });
@@ -197,11 +219,11 @@ export default function LeadEngine() {
     reader.readAsText(file);
   };
 
-  // FIXED: Actually opens the modal as a blank slate
   const openNewModal = () => {
     setEditingId(null);
     setSchoolName(''); setLocation(''); setContactName(''); setContactRole('Principal');
     setPhone(''); setEmail(''); setPc1('Middle-Income'); setPc2('No System'); setPc3('Marks-Only');
+    setEngineTarget(1);
     setShowModal(true);
   };
 
@@ -216,19 +238,13 @@ export default function LeadEngine() {
     setPc1(lead.pc1 || 'Middle-Income');
     setPc2(lead.pc2 || 'No System');
     setPc3(lead.pc3 || 'Marks-Only');
+    setEngineTarget(lead.engine || 1);
     setShowModal(true);
   };
 
   const closeModal = () => {
     setEditingId(null);
-    setSchoolName(''); setLocation(''); setContactName(''); setContactRole('Principal');
-    setPhone(''); setEmail(''); setPc1('Middle-Income'); setPc2('No System'); setPc3('Marks-Only');
     setShowModal(false);
-  };
-
-  const handleAssign = async (leadId, agentId) => {
-    if (!db) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { assigned_to: agentId || null });
   };
 
   const handleDeleteLead = async (id) => {
@@ -240,14 +256,16 @@ export default function LeadEngine() {
   const filteredLeads = leads.filter((l) => (l.school_name || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500 pb-12">
       
       {/* Top Action Bar */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-        <h2 className="text-2xl font-black text-slate-800 tracking-tight uppercase">Lead Scoring Engine</h2>
+        <div>
+          <h2 className="text-2xl font-black text-slate-800 tracking-tight uppercase">Lead Routing Engine</h2>
+          <p className="text-slate-500 text-sm font-medium mt-1">Manual Master Command Center for Lead Flow.</p>
+        </div>
         
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          {/* Hidden File Input for CSV */}
           <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
           
           <button onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2.5 px-4 rounded-xl flex items-center shadow-sm text-xs uppercase tracking-widest transition-all">
@@ -258,7 +276,6 @@ export default function LeadEngine() {
             <Download className="w-4 h-4 mr-2 text-slate-400" /> Export
           </button>
 
-          {/* FIXED: onClick={openNewModal} */}
           <button onClick={openNewModal} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl flex items-center shadow-lg text-xs uppercase tracking-widest transition-all active:scale-95">
             <Plus className="w-5 h-5 mr-2" /> New B2B Lead
           </button>
@@ -268,8 +285,8 @@ export default function LeadEngine() {
       {/* Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard icon={<Users />} label="Total Leads" value={leads.length} color="blue" />
-        <MetricCard icon={<Flame />} label="Hot Leads (Score 70+)" value={leads.filter(l => l.score >= 70).length} color="orange" />
-        <MetricCard icon={<Target />} label="Active Engine 1" value={leads.filter(l => l.engine === 1).length} color="emerald" />
+        <MetricCard icon={<Target />} label="Active in E1 (Sales)" value={leads.filter(l => l.engine === 1).length} color="indigo" />
+        <MetricCard icon={<RefreshCw />} label="Resting in E2 (Nurture)" value={leads.filter(l => l.engine === 2).length} color="emerald" />
       </div>
 
       {/* Main Table */}
@@ -284,8 +301,8 @@ export default function LeadEngine() {
             <thead>
               <tr className="bg-white border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400 font-black">
                 <th className="p-4 pl-6">School & Contact</th>
-                <th className="p-4">Edivy Parameters</th>
-                <th className="p-4">Routing & Score</th>
+                <th className="p-4">Intelligence Profile</th>
+                <th className="p-4">Engine Routing</th>
                 <th className="p-4">Lead Owner (Assign)</th>
                 <th className="p-4 text-right pr-6">Actions</th>
               </tr>
@@ -312,11 +329,17 @@ export default function LeadEngine() {
                   <td className="p-4">
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center text-yellow-500 font-black text-sm">
-                        <Star className="w-4 h-4 mr-1 fill-current" /> {lead.score}
+                        <Star className="w-4 h-4 mr-1 fill-current" /> {lead.score} / 100
                       </div>
-                      <span className={`text-[9px] font-black px-2.5 py-1 rounded border text-center uppercase tracking-widest w-max ${lead.engine === 1 ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
-                        {lead.engine === 1 ? '🚀 ENGINE 1' : '💧 ENGINE 2'}
-                      </span>
+                      {/* MANUAL ENGINE TOGGLE IN TABLE */}
+                      <select
+                        value={lead.engine || 1}
+                        onChange={(e) => handleEngineChange(lead.id, e.target.value)}
+                        className={`text-[9px] font-black px-2.5 py-1.5 rounded-lg border outline-none cursor-pointer uppercase tracking-widest w-max transition ${lead.engine === 1 ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'}`}
+                      >
+                        <option value={1}>🚀 ENGINE 1 (Sales)</option>
+                        <option value={2}>💧 ENGINE 2 (Nurture)</option>
+                      </select>
                     </div>
                   </td>
                   <td className="p-4">
@@ -325,9 +348,9 @@ export default function LeadEngine() {
                       <select
                         value={lead.assigned_to || ''}
                         onChange={(e) => handleAssign(lead.id, e.target.value)}
-                        className="text-[10px] font-black bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 uppercase tracking-widest cursor-pointer"
+                        className={`text-[10px] font-black border rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 uppercase tracking-widest cursor-pointer ${lead.assigned_to ? 'bg-white border-slate-200 text-slate-700' : 'bg-red-50 border-red-100 text-red-500'}`}
                       >
-                        <option value="">Unassigned</option>
+                        <option value="">⚠️ Unassigned</option>
                         {agents.map((agent) => (
                           <option key={agent.id} value={agent.id}>{agent.name} ({agent.role})</option>
                         ))}
@@ -349,7 +372,7 @@ export default function LeadEngine() {
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl my-8">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl shrink-0">
               <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{editingId ? 'Edit B2B Lead' : 'New B2B Lead'}</h3>
               <button onClick={closeModal} className="text-slate-400 hover:text-slate-700 bg-white rounded-full p-1.5 shadow-sm border border-slate-200"><X className="w-5 h-5" /></button>
             </div>
@@ -391,19 +414,29 @@ export default function LeadEngine() {
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
 
-              <div className="bg-indigo-50/50 p-6 rounded-2xl border border-indigo-100 space-y-4 mt-2">
+              <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100 space-y-4 mt-2">
                 <h4 className="text-[10px] font-black text-indigo-800 uppercase tracking-widest flex items-center">
-                  <Zap className="w-4 h-4 mr-2 text-yellow-500 fill-current" /> Intelligence Profile
+                  <Zap className="w-4 h-4 mr-2 text-yellow-500 fill-current" /> Intelligence & Routing Profile
                 </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <ParameterSelect label="PC1: Tier" value={pc1} setter={setPc1} options={['Elite/Professional', 'Middle-Income', 'Mass-Market']} />
                   <ParameterSelect label="PC2: Tech" value={pc2} setter={setPc2} options={['No System', 'Manual WhatsApp', 'Clunky ERP', 'Premium Portal']} />
                   <ParameterSelect label="PC3: Vision" value={pc3} setter={setPc3} options={['Marks-Only', 'Holistic/Life-Skills', 'Tech-Forward']} />
+                  
+                  {/* MANUAL ENGINE SELECTOR IN MODAL */}
+                  <div className="flex flex-col border-l border-indigo-200 pl-4">
+                    <label className="text-[10px] font-black text-indigo-500 uppercase mb-2 ml-1 tracking-widest">Pipeline Target</label>
+                    <select value={engineTarget} onChange={(e) => setEngineTarget(e.target.value)} className="w-full px-3 py-2.5 bg-indigo-600 text-white border border-indigo-700 rounded-xl text-xs font-bold outline-none cursor-pointer">
+                      <option value={1}>🚀 E1 (Active Sales)</option>
+                      <option value={2}>💧 E2 (Nurture)</option>
+                    </select>
+                  </div>
+
                 </div>
               </div>
               
-              <button type="submit" disabled={isAdding} className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl shadow-md disabled:opacity-70 mt-4 uppercase tracking-widest text-xs hover:bg-indigo-700 transition-all">
-                {isAdding ? 'Saving...' : editingId ? 'Update Target' : 'Acquire Target'}
+              <button type="submit" disabled={isAdding} className="w-full bg-slate-900 text-white font-black py-4 rounded-xl shadow-md disabled:opacity-70 mt-4 uppercase tracking-widest text-xs hover:bg-slate-800 transition-all flex items-center justify-center">
+                {isAdding ? 'Processing...' : editingId ? 'Update Target & Reroute' : 'Acquire Target & Route'}
               </button>
             </form>
           </div>
@@ -415,8 +448,10 @@ export default function LeadEngine() {
 
 function MetricCard({ label, value, icon, color }) {
   const colorMap = {
-    indigo: 'bg-indigo-50 text-indigo-600', blue: 'bg-blue-50 text-blue-600',
-    orange: 'bg-orange-50 text-orange-600', emerald: 'bg-emerald-50 text-emerald-600',
+    indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100', 
+    blue: 'bg-blue-50 text-blue-600 border-blue-100',
+    orange: 'bg-orange-50 text-orange-600 border-orange-100', 
+    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
   };
   return (
     <div className="bg-white p-6 rounded-2xl border border-slate-200 flex items-center shadow-sm">
