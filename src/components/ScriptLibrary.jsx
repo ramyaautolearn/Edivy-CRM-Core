@@ -50,7 +50,14 @@ export default function ScriptLibrary() {
 
   const handleSaveScript = async (e) => {
     e.preventDefault();
-    await mockApi.saveScript(editingScript);
+    
+    // SAFETY NET: Ensure new scripts get a unique ID before saving!
+    const finalScript = { ...editingScript };
+    if (!finalScript.id) {
+      finalScript.id = 'script_' + Date.now(); 
+    }
+    
+    await mockApi.saveScript(finalScript);
     setIsScriptModalOpen(false);
     loadScripts();
   };
