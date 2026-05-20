@@ -55,28 +55,25 @@ export default function ScriptLibrary() {
     loadScripts();
   };
 
-  // --- NEW: ADVANCED CONTEXTUAL AI GENERATOR (MOCK) ---
+  // --- SMARTER MOCK AI GENERATOR ---
   const handleGenerateAI = async () => {
     if (!aiPromptInstruction.trim() && !incomingContext.trim()) return alert("Please enter the context or school's message.");
     setIsGenerating(true);
     
     setTimeout(() => {
-      // Simulating the Mirror -> Reframe -> Insight -> Transition framework
       const generatedText = 
-`Hi {contact_name}, completely understand. Admissions season leaves almost zero bandwidth for implementing new tools right now.
+`Hi {contact_name}, I completely understand your hesitation when you mention "${incomingContext}". Data privacy and control are massive priorities for ${editingScript.pc1 !== 'Any' ? editingScript.pc1 : 'top'} schools.
 
-What we've noticed with other ${editingScript.pc1 !== 'Any' ? editingScript.pc1 : 'top'} schools, though, is that the 'lack of time' usually stems from teachers manually repeating the same updates across different WhatsApp chats.
+Here is how we handle that: ${aiPromptInstruction}. We are essentially laying the Parent Pulse framework over your existing infrastructure without pulling your raw data.
 
-Schools that shift to an automated Parent Pulse system actually get about 3 hours back per week per teacher, simply by centralizing that flow and building parent independence.
+Happy to send over a 1-pager showing exactly how this data architecture works if it helps clear things up?`;
 
-If you're open to it, happy to share a quick 1-page visual on how they map that out? No pressure to jump on a call.`;
-
-      const reasoningText = "This framing works because it validates their lack of time (Mirror), identifies the root cause without blaming them (Reframe), introduces the Parent Pulse time-saving metric (Insight), and offers a low-friction asset instead of asking for a 30-minute demo (Transition).";
+      const reasoningText = "This framing works because it validates their specific risk concern (Mirror), immediately addresses your desired angle without being defensive (Reframe), and offers a technical asset to build trust (Transition).";
       
       setEditingScript({ ...editingScript, content: generatedText });
       setAiReasoning(reasoningText);
       setIsGenerating(false);
-    }, 1800);
+    }, 1500);
   };
 
   return (
@@ -184,6 +181,7 @@ If you're open to it, happy to share a quick 1-page visual on how they map that 
                     <select value={editingScript.pc1} onChange={(e) => setEditingScript({ ...editingScript, pc1: e.target.value })} className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm font-semibold outline-none">
                       <option value="Any">Any Tier</option>
                       <option value="Elite/Professional">Elite/Professional</option>
+                      <option value="Middle-Income">Middle-Income</option>
                       <option value="Mass-Market">Mass-Market</option>
                     </select>
                   </div>
@@ -192,7 +190,9 @@ If you're open to it, happy to share a quick 1-page visual on how they map that 
                     <select value={editingScript.pc2} onChange={(e) => setEditingScript({ ...editingScript, pc2: e.target.value })} className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm font-semibold outline-none">
                       <option value="Any">Any Tech</option>
                       <option value="Premium Portal">Premium Portal</option>
+                      <option value="Clunky ERP">Clunky ERP</option>
                       <option value="Manual WhatsApp">Manual WhatsApp</option>
+                      <option value="No System">No System</option>
                     </select>
                   </div>
                   <div>
@@ -200,6 +200,7 @@ If you're open to it, happy to share a quick 1-page visual on how they map that 
                     <select value={editingScript.pc3} onChange={(e) => setEditingScript({ ...editingScript, pc3: e.target.value })} className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm font-semibold outline-none">
                       <option value="Any">Any Vision</option>
                       <option value="Tech-Forward">Tech-Forward</option>
+                      <option value="Holistic/Life-Skills">Holistic/Life-Skills</option>
                       <option value="Marks-Only">Marks-Only</option>
                     </select>
                   </div>
@@ -229,7 +230,7 @@ If you're open to it, happy to share a quick 1-page visual on how they map that 
                         <textarea 
                           value={incomingContext}
                           onChange={(e) => setIncomingContext(e.target.value)}
-                          placeholder='e.g., "We are too busy with admissions right now to look at software."'
+                          placeholder='e.g., "sharing our school contacts is a risk"'
                           className="w-full border-none rounded-xl p-4 min-h-[80px] outline-none text-sm bg-purple-950/50 text-white placeholder-purple-400 font-medium"
                         />
                       </div>
@@ -240,7 +241,7 @@ If you're open to it, happy to share a quick 1-page visual on how they map that 
                         <textarea 
                           value={aiPromptInstruction}
                           onChange={(e) => setAiPromptInstruction(e.target.value)}
-                          placeholder="e.g., Reframe this. Show how Parent Pulse saves 3 hours a week by centralizing the chaos."
+                          placeholder="e.g., we only show you the setup we dont take your contacts"
                           className="w-full border-none rounded-xl p-4 min-h-[80px] outline-none text-sm bg-purple-950/50 text-white placeholder-purple-400 font-medium"
                         />
                       </div>
