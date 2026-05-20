@@ -1,17 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  BookOpen,
-  Plus,
-  Filter,
-  Upload,
-  Edit,
-  Trash2,
-  Zap,
-  X,
-  Save,
-  Wand2,
-  Paperclip,
-  Loader2
+  BookOpen, Plus, Filter, Upload, Edit, Trash2, Zap, X, Save,
+  Wand2, Paperclip, Loader2, MessageSquare, Lightbulb, CheckCircle2
 } from 'lucide-react';
 import { mockApi } from '../data/mockDb';
 
@@ -21,22 +11,20 @@ export default function ScriptLibrary() {
   const [filterPC1, setFilterPC1] = useState('all');
   const [filterType, setFilterType] = useState('all');
 
-  // Modal States
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importJsonText, setImportJsonText] = useState('');
 
-  // Single Script Edit Modal States
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
   const [editingScript, setEditingScript] = useState(null);
   
   // AI Generation States
   const [isAiMode, setIsAiMode] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState('');
+  const [incomingContext, setIncomingContext] = useState('');
+  const [aiPromptInstruction, setAiPromptInstruction] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [aiReasoning, setAiReasoning] = useState('');
 
-  useEffect(() => {
-    loadScripts();
-  }, []);
+  useEffect(() => { loadScripts(); }, []);
 
   const loadScripts = async () => {
     const data = await mockApi.getScripts();
@@ -45,22 +33,16 @@ export default function ScriptLibrary() {
 
   const openScriptModal = (script = null) => {
     setIsAiMode(false);
-    setAiPrompt('');
+    setIncomingContext('');
+    setAiPromptInstruction('');
+    setAiReasoning('');
     if (script) {
       setEditingScript({ ...script });
     } else {
       setEditingScript({
-        id: null,
-        engine: 1,
-        stage_id: 's1',
-        message_type: 'Objection Handler',
-        pc1: 'Any',
-        pc2: 'Any',
-        pc3: 'Any',
-        tone: 'Professional',
-        priority: 1,
-        content: '',
-        media_url: '', // NEW: Media Attachment Field
+        id: null, engine: 1, stage_id: 's1', message_type: 'Objection Handler',
+        pc1: 'Any', pc2: 'Any', pc3: 'Any', tone: 'Professional', priority: 1,
+        content: '', media_url: '', 
       });
     }
     setIsScriptModalOpen(true);
@@ -73,142 +55,74 @@ export default function ScriptLibrary() {
     loadScripts();
   };
 
-  const handleImport = async (e) => {
-    e.preventDefault();
-    try {
-      const parsedData = JSON.parse(importJsonText);
-      const scriptArray = Array.isArray(parsedData) ? parsedData : [parsedData];
-      const result = await mockApi.importScripts(scriptArray);
-      alert(`Successfully imported ${result.count} structured scripts!`);
-      setIsImportModalOpen(false);
-      setImportJsonText('');
-      loadScripts();
-    } catch (err) {
-      alert('Invalid JSON format. Please ensure the input is a valid JSON array.');
-    }
-  };
-
-  const handleDelete = async (id) => {
-    if (window.confirm('Delete this script?')) {
-      await mockApi.deleteScript(id);
-      loadScripts();
-    }
-  };
-
-  // --- NEW: AI GENERATOR FUNCTION (MOCK FOR NOW) ---
+  // --- NEW: ADVANCED CONTEXTUAL AI GENERATOR (MOCK) ---
   const handleGenerateAI = async () => {
-    if (!aiPrompt.trim()) return alert("Please enter a scenario for the AI to draft.");
+    if (!aiPromptInstruction.trim() && !incomingContext.trim()) return alert("Please enter the context or school's message.");
     setIsGenerating(true);
     
-    // Simulate API Call Delay
     setTimeout(() => {
-      let generatedText = `Hi {contact_name},\n\nI understand your concern about ${aiPrompt.toLowerCase()}.\n\nInterestingly, schools we work with in the ${editingScript.pc1} space using ${editingScript.pc2} found that once they centralized this process, their teachers actually saved roughly 3 hours a week.\n\nHappy to show you exactly how they mapped that workflow if it's helpful?`;
-      
-      setEditingScript({
-        ...editingScript,
-        content: generatedText
-      });
-      setIsGenerating(false);
-      setIsAiMode(false); // Close AI panel to show generated text
-    }, 1500);
-  };
+      // Simulating the Mirror -> Reframe -> Insight -> Transition framework
+      const generatedText = 
+`Hi {contact_name}, completely understand. Admissions season leaves almost zero bandwidth for implementing new tools right now.
 
-  const filteredScripts = scripts.filter((s) => {
-    if (filterEngine !== 'all' && s.engine.toString() !== filterEngine) return false;
-    if (filterPC1 !== 'all' && s.pc1 !== filterPC1) return false;
-    if (filterType !== 'all' && s.message_type !== filterType) return false;
-    return true;
-  });
+What we've noticed with other ${editingScript.pc1 !== 'Any' ? editingScript.pc1 : 'top'} schools, though, is that the 'lack of time' usually stems from teachers manually repeating the same updates across different WhatsApp chats.
+
+Schools that shift to an automated Parent Pulse system actually get about 3 hours back per week per teacher, simply by centralizing that flow and building parent independence.
+
+If you're open to it, happy to share a quick 1-page visual on how they map that out? No pressure to jump on a call.`;
+
+      const reasoningText = "This framing works because it validates their lack of time (Mirror), identifies the root cause without blaming them (Reframe), introduces the Parent Pulse time-saving metric (Insight), and offers a low-friction asset instead of asking for a 30-minute demo (Transition).";
+      
+      setEditingScript({ ...editingScript, content: generatedText });
+      setAiReasoning(reasoningText);
+      setIsGenerating(false);
+    }, 1800);
+  };
 
   return (
     <div className="space-y-6 pb-10">
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-            <BookOpen className="w-6 h-6 mr-2 text-indigo-600" /> Script & Content Library
+          <h2 className="text-2xl font-black text-slate-800 flex items-center tracking-tight">
+            <BookOpen className="w-6 h-6 mr-2 text-indigo-600" /> Contextual Persuasion Engine
           </h2>
-          <p className="text-gray-500 text-sm mt-1">
-            Manage PC-based reactive responses and nurture automation scripts.
+          <p className="text-slate-500 text-sm mt-1 font-medium">
+            Dynamic conversational intelligence, objection handlers, and strategic scripts.
           </p>
         </div>
         <div className="flex space-x-3">
-          <button onClick={() => setIsImportModalOpen(true)} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold text-sm hover:bg-gray-50 transition flex items-center shadow-sm">
-            <Upload className="w-4 h-4 mr-1.5" /> Bulk JSON Import
-          </button>
-          <button onClick={() => openScriptModal()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition flex items-center shadow-sm">
-            <Plus className="w-4 h-4 mr-1.5" /> Single Script
+          <button onClick={() => openScriptModal()} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 transition flex items-center shadow-md">
+            <Plus className="w-4 h-4 mr-1.5" /> New Script Target
           </button>
         </div>
-      </div>
-
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex items-center space-x-3 flex-wrap gap-y-2">
-        <div className="flex items-center text-sm font-medium text-gray-600">
-          <Filter className="w-4 h-4 mr-2" /> Filters:
-        </div>
-        <select value={filterEngine} onChange={(e) => setFilterEngine(e.target.value)} className="bg-slate-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none font-medium">
-          <option value="all">All Engines</option>
-          <option value="1">Engine 1 (Execution)</option>
-          <option value="2">Engine 2 (Nurture)</option>
-        </select>
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="bg-slate-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none font-medium">
-          <option value="all">All Types</option>
-          <option value="Objection Handler">Objection Handler</option>
-          <option value="FAQ / Tech Proof">FAQ / Tech Proof</option>
-          <option value="Social Proof">Social Proof / Case Study</option>
-          <option value="Compelling Close">Compelling Close</option>
-          <option value="Opening">Opening</option>
-          <option value="Insight">Insight Hook</option>
-        </select>
-        <select value={filterPC1} onChange={(e) => setFilterPC1(e.target.value)} className="bg-slate-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none font-medium">
-          <option value="all">All PC1 Tiers</option>
-          <option value="Elite/Professional">Elite/Professional</option>
-          <option value="Middle-Income">Middle-Income</option>
-          <option value="Mass-Market">Mass-Market</option>
-          <option value="Any">Any Tier</option>
-        </select>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filteredScripts.map((script) => (
-          <div key={script.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex flex-col relative overflow-hidden group">
+        {scripts.map((script) => (
+          <div key={script.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col relative overflow-hidden group">
             <div className={`absolute top-0 left-0 w-1.5 bottom-0 ${script.engine === 1 ? 'bg-indigo-500' : 'bg-blue-400'}`}></div>
             <div className="flex justify-between items-start mb-3 pl-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${script.engine === 1 ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-widest ${script.engine === 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'}`}>
                   Engine {script.engine}
                 </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase bg-purple-100 text-purple-700 border border-purple-200">
+                <span className="text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-widest bg-purple-100 text-purple-700">
                   {script.message_type}
                 </span>
                 {script.media_url && (
-                   <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center">
-                     <Paperclip className="w-3 h-3 mr-1"/> Media Attached
+                   <span className="text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-widest bg-orange-100 text-orange-700 flex items-center">
+                     <Paperclip className="w-3 h-3 mr-1"/> Asset Attached
                    </span>
                 )}
               </div>
               <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => openScriptModal(script)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded hover:text-indigo-600"><Edit className="w-4 h-4" /></button>
-                <button onClick={() => handleDelete(script.id)} className="p-1.5 text-gray-400 hover:bg-red-50 rounded hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                <button onClick={() => openScriptModal(script)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded"><Edit className="w-4 h-4" /></button>
               </div>
             </div>
 
             <div className="pl-2 flex-1">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-gray-700 leading-relaxed font-medium mb-4 whitespace-pre-wrap">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-700 leading-relaxed font-medium mb-4 whitespace-pre-wrap">
                 {script.content}
-              </div>
-              <div className="grid grid-cols-3 gap-2 mt-auto">
-                <div className="bg-gray-50 border border-gray-100 p-2 rounded-lg text-center" title="Target PC1 Tier">
-                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">PC1: Tier</div>
-                  <div className="text-xs font-semibold text-gray-800 truncate">{script.pc1}</div>
-                </div>
-                <div className="bg-gray-50 border border-gray-100 p-2 rounded-lg text-center" title="Target PC2 Tech">
-                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">PC2: Tech</div>
-                  <div className="text-xs font-semibold text-gray-800 truncate">{script.pc2}</div>
-                </div>
-                <div className="bg-gray-50 border border-gray-100 p-2 rounded-lg text-center" title="Target PC3 Vision">
-                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">PC3: Vision</div>
-                  <div className="text-xs font-semibold text-gray-800 truncate">{script.pc3}</div>
-                </div>
               </div>
             </div>
           </div>
@@ -216,147 +130,158 @@ export default function ScriptLibrary() {
       </div>
 
       {isScriptModalOpen && editingScript && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-3xl overflow-hidden shadow-xl flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="text-xl font-bold flex items-center">
-                <Edit className="w-5 h-5 mr-2 text-indigo-600" />
-                {editingScript.id ? 'Edit Smart Script' : 'Create New Script'}
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border border-slate-200">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
+              <h3 className="text-xl font-black text-slate-800 flex items-center tracking-tight">
+                <Zap className="w-5 h-5 mr-2 text-indigo-600" />
+                {editingScript.id ? 'Edit Intelligence Script' : 'Generate Intelligence Script'}
               </h3>
               <div className="flex items-center gap-4">
                  {!editingScript.id && (
-                    <button onClick={() => setIsAiMode(!isAiMode)} className={`flex items-center text-sm font-bold px-3 py-1.5 rounded-lg border transition ${isAiMode ? 'bg-purple-100 text-purple-700 border-purple-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
-                      <Wand2 className="w-4 h-4 mr-1.5" /> {isAiMode ? 'Manual Mode' : 'Draft with AI'}
+                    <button onClick={() => setIsAiMode(!isAiMode)} className={`flex items-center text-sm font-bold px-4 py-2 rounded-xl transition ${isAiMode ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                      <Wand2 className="w-4 h-4 mr-1.5" /> {isAiMode ? 'Switch to Manual' : 'Draft with Edivy AI'}
                     </button>
                  )}
-                 <button onClick={() => setIsScriptModalOpen(false)}>
-                   <X className="h-5 w-5 text-gray-500" />
-                 </button>
+                 <button onClick={() => setIsScriptModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="h-6 w-6" /></button>
               </div>
             </div>
 
-            <form id="script-form" onSubmit={handleSaveScript} className="p-6 overflow-y-auto space-y-6">
+            <form id="script-form" onSubmit={handleSaveScript} className="p-6 overflow-y-auto space-y-6 bg-slate-50/50">
               
               <div className="grid grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-gray-700">Target Engine</label>
-                  <select value={editingScript.engine} onChange={(e) => setEditingScript({ ...editingScript, engine: parseInt(e.target.value) })} className="w-full border rounded-lg px-3 py-2 outline-none">
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Target Engine</label>
+                  <select value={editingScript.engine} onChange={(e) => setEditingScript({ ...editingScript, engine: parseInt(e.target.value) })} className="w-full border border-slate-200 bg-white rounded-xl px-4 py-3 text-sm font-bold outline-none cursor-pointer">
                     <option value={1}>Engine 1 (Execution)</option>
                     <option value={2}>Engine 2 (Nurture)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-gray-700">Message Intent / Type</label>
-                  <select value={editingScript.message_type} onChange={(e) => setEditingScript({ ...editingScript, message_type: e.target.value })} className="w-full border rounded-lg px-3 py-2 outline-none">
-                    <option value="Objection Handler">Objection Handler</option>
-                    <option value="FAQ / Tech Proof">FAQ / Tech Proof</option>
-                    <option value="Social Proof">Social Proof / Case Study</option>
-                    <option value="Compelling Close">Compelling Close</option>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Message Intent / Type</label>
+                  <select value={editingScript.message_type} onChange={(e) => setEditingScript({ ...editingScript, message_type: e.target.value })} className="w-full border border-slate-200 bg-white rounded-xl px-4 py-3 text-sm font-bold outline-none cursor-pointer">
                     <option value="Opening">Opening</option>
-                    <option value="Insight">Insight Hook</option>
-                    <option value="Reality">Reality Drop</option>
-                    <option value="Invite">Soft Invite / CTA</option>
-                    <option value="Any">Any Type</option>
+                    <option value="Insight Drop">Insight Drop</option>
+                    <option value="Gap Identification">Gap Identification</option>
+                    <option value="Objection Handler">Objection Handler</option>
+                    <option value="Rebuttal">Rebuttal</option>
+                    <option value="FAQ Response">FAQ Response</option>
+                    <option value="Demo Transition">Demo Transition</option>
+                    <option value="Closing">Closing</option>
+                    <option value="Recovery">Recovery</option>
+                    <option value="Re-Engagement">Re-Engagement</option>
                   </select>
                 </div>
               </div>
 
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-4">
-                <h4 className="font-bold text-indigo-900 text-sm flex items-center">
-                  <Zap className="w-4 h-4 mr-1.5 text-indigo-600" /> Persona Targeting (PC Rules)
+              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h4 className="font-black text-[10px] uppercase tracking-widest text-slate-800 mb-4 flex items-center">
+                  Persona Targeting
                 </h4>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold mb-1 text-indigo-800">PC1: Tier</label>
-                    <select value={editingScript.pc1} onChange={(e) => setEditingScript({ ...editingScript, pc1: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm">
+                    <label className="block text-[10px] font-bold mb-1.5 text-slate-500 uppercase tracking-wider">PC1: Tier</label>
+                    <select value={editingScript.pc1} onChange={(e) => setEditingScript({ ...editingScript, pc1: e.target.value })} className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm font-semibold outline-none">
                       <option value="Any">Any Tier</option>
                       <option value="Elite/Professional">Elite/Professional</option>
-                      <option value="Middle-Income">Middle-Income</option>
                       <option value="Mass-Market">Mass-Market</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold mb-1 text-indigo-800">PC2: Current Tech</label>
-                    <select value={editingScript.pc2} onChange={(e) => setEditingScript({ ...editingScript, pc2: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm">
+                    <label className="block text-[10px] font-bold mb-1.5 text-slate-500 uppercase tracking-wider">PC2: Current Tech</label>
+                    <select value={editingScript.pc2} onChange={(e) => setEditingScript({ ...editingScript, pc2: e.target.value })} className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm font-semibold outline-none">
                       <option value="Any">Any Tech</option>
                       <option value="Premium Portal">Premium Portal</option>
-                      <option value="Clunky ERP">Clunky ERP</option>
                       <option value="Manual WhatsApp">Manual WhatsApp</option>
-                      <option value="No System">No System</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold mb-1 text-indigo-800">PC3: Vision</label>
-                    <select value={editingScript.pc3} onChange={(e) => setEditingScript({ ...editingScript, pc3: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm">
+                    <label className="block text-[10px] font-bold mb-1.5 text-slate-500 uppercase tracking-wider">PC3: Vision</label>
+                    <select value={editingScript.pc3} onChange={(e) => setEditingScript({ ...editingScript, pc3: e.target.value })} className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm font-semibold outline-none">
                       <option value="Any">Any Vision</option>
                       <option value="Tech-Forward">Tech-Forward</option>
-                      <option value="Holistic/Life-Skills">Holistic/Life-Skills</option>
                       <option value="Marks-Only">Marks-Only</option>
                     </select>
                   </div>
                 </div>
               </div>
               
-              {/* --- NEW: MEDIA ATTACHMENT FIELD --- */}
               <div>
-                 <label className="block text-sm font-bold mb-1 text-gray-700 flex items-center">
-                   <Paperclip className="w-4 h-4 mr-1 text-gray-400" /> Resource URL / Media Link (Optional)
+                 <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center">
+                   <Paperclip className="w-4 h-4 mr-1" /> Resource Asset Link (Optional)
                  </label>
                  <input 
                    type="text" 
                    value={editingScript.media_url || ''} 
                    onChange={(e) => setEditingScript({ ...editingScript, media_url: e.target.value })} 
-                   placeholder="https://drive.google.com/file/d/..." 
-                   className="w-full border rounded-lg px-3 py-2 outline-none focus:border-indigo-500 text-sm"
+                   placeholder="e.g., Link to the Parent Pulse 1-pager or Hyderabad case study..." 
+                   className="w-full border border-slate-200 bg-white rounded-xl px-4 py-3 outline-none focus:border-indigo-500 text-sm font-medium shadow-sm"
                  />
-                 <p className="text-[10px] text-gray-400 mt-1">Paste a link to a 1-pager, screenshot, or case study for the agent to attach.</p>
               </div>
 
-              {/* --- AI GENERATOR VS MANUAL TEXT AREA --- */}
               {isAiMode ? (
-                 <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-5">
-                    <label className="block text-sm font-bold text-purple-900 mb-2 flex items-center">
-                      <Wand2 className="w-4 h-4 mr-1.5" /> AI Draft Prompt
-                    </label>
-                    <textarea 
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      placeholder="e.g., School says their teachers are too busy to learn another app. Frame it around our Swadhyaya movement of reducing manual workload..."
-                      className="w-full border border-purple-200 rounded-lg p-3 min-h-[100px] outline-none focus:border-purple-500 text-sm bg-white"
-                    />
+                 <div className="bg-purple-900 border-2 border-purple-800 rounded-2xl p-6 shadow-inner">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-purple-300 mb-2 flex items-center">
+                          <MessageSquare className="w-3 h-3 mr-1.5" /> Incoming School Message / Context
+                        </label>
+                        <textarea 
+                          value={incomingContext}
+                          onChange={(e) => setIncomingContext(e.target.value)}
+                          placeholder='e.g., "We are too busy with admissions right now to look at software."'
+                          className="w-full border-none rounded-xl p-4 min-h-[80px] outline-none text-sm bg-purple-950/50 text-white placeholder-purple-400 font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-purple-300 mb-2 flex items-center">
+                          <Wand2 className="w-3 h-3 mr-1.5" /> Desired Strategic Angle
+                        </label>
+                        <textarea 
+                          value={aiPromptInstruction}
+                          onChange={(e) => setAiPromptInstruction(e.target.value)}
+                          placeholder="e.g., Reframe this. Show how Parent Pulse saves 3 hours a week by centralizing the chaos."
+                          className="w-full border-none rounded-xl p-4 min-h-[80px] outline-none text-sm bg-purple-950/50 text-white placeholder-purple-400 font-medium"
+                        />
+                      </div>
+                    </div>
+                    
                     <button 
                       type="button" 
                       onClick={handleGenerateAI}
                       disabled={isGenerating}
-                      className="mt-3 bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 transition flex items-center justify-center w-full shadow-sm disabled:opacity-50"
+                      className="bg-purple-500 text-white font-black uppercase tracking-widest px-6 py-4 rounded-xl hover:bg-purple-400 transition flex items-center justify-center w-full shadow-lg disabled:opacity-50"
                     >
-                      {isGenerating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating Strategic Script...</> : 'Generate Smart Script'}
+                      {isGenerating ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Analyzing Intent & Drafting...</> : 'Generate Contextual Response'}
                     </button>
+
+                    {aiReasoning && (
+                      <div className="mt-6 bg-purple-950/50 border border-purple-800 rounded-xl p-4">
+                        <div className="flex items-center text-purple-300 text-[10px] font-black uppercase tracking-widest mb-2">
+                          <Lightbulb className="w-3 h-3 mr-1" /> Strategic Reasoning (Mirror &gt; Reframe &gt; Insight &gt; Transition)
+                        </div>
+                        <p className="text-purple-200 text-xs leading-relaxed font-medium">{aiReasoning}</p>
+                      </div>
+                    )}
                  </div>
-              ) : (
-                <div>
-                  <div className="flex justify-between items-end mb-1">
-                    <label className="block text-sm font-bold text-gray-700">Script Content (WhatsApp Format)</label>
-                    <span className="text-xs text-gray-400">Use {'{contact_name}'} for variables</span>
-                  </div>
-                  <textarea
-                    required
-                    value={editingScript.content}
-                    onChange={(e) => setEditingScript({ ...editingScript, content: e.target.value })}
-                    className="w-full border border-gray-300 rounded-xl p-4 min-h-[150px] outline-none focus:border-indigo-500 bg-slate-50"
-                    placeholder="Hi {contact_name}, noticed you..."
-                  />
-                </div>
-              )}
+              ) : null}
+
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Final Script Content (WhatsApp Format)</label>
+                <textarea
+                  required
+                  value={editingScript.content}
+                  onChange={(e) => setEditingScript({ ...editingScript, content: e.target.value })}
+                  className="w-full border border-slate-200 rounded-2xl p-5 min-h-[180px] outline-none focus:border-indigo-500 bg-white font-medium text-slate-700 shadow-sm leading-relaxed"
+                  placeholder="Hi {contact_name}, noticed you..."
+                />
+              </div>
               
             </form>
 
-            <div className="px-6 py-4 border-t bg-slate-50 flex justify-end shrink-0">
-              <button type="button" onClick={() => setIsScriptModalOpen(false)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg mr-2">
-                Cancel
-              </button>
-              <button type="submit" form="script-form" className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition shadow-sm flex items-center">
-                <Save className="w-4 h-4 mr-2" /> Save Script Target
+            <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-end shrink-0">
+              <button type="submit" form="script-form" className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-black uppercase tracking-widest hover:bg-slate-800 transition shadow-lg flex items-center">
+                <CheckCircle2 className="w-5 h-5 mr-2" /> Save to Vault
               </button>
             </div>
           </div>
