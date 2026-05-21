@@ -29,32 +29,25 @@ export default function DealRoomTab({ user, initialLeadId }) {
   useEffect(() => {
     if (!db || !user?.id) return;
 
-    // 1. HYPER-AGGRESSIVE PIPELINE FINDER & FALLBACK
-    const unsubPipelines = onSnapshot(
-      collection(db, 'artifacts', appId, 'public', 'data', 'pipelines'),
-      async (snap) => {
-        const allPipelines = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        console.log("🔥 LIVE PIPELINES FOUND IN DB:", allPipelines); 
-        
-        // Aggressively search for any pipeline that actually contains a 'stages' array
-        let liveE1 = allPipelines.find(p => p.stages && p.stages.length > 0);
-        
-        // If it's buried in a nested data object
-        if (!liveE1) {
-          const nested = allPipelines.find(p => p.data?.stages && p.data.stages.length > 0);
-          if (nested) liveE1 = nested.data;
-        }
-
-        if (liveE1) {
-          setE1Pipeline(liveE1);
+    // 1. IMPROVED: Smart Pipeline Fetcher
+    const pipelineRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active'); // Attempt to find a doc named 'active'
+    
+    const unsubPipelines = onSnapshot(pipelineRef, (docSnap) => {
+        if (docSnap.exists()) {
+            console.log("✅ Pipeline Found in Document:", docSnap.data());
+            setE1Pipeline(docSnap.data());
         } else {
-          console.warn("⚠️ No live stages found in Firebase. Falling back to local Mock Data so UI works.");
-          const fallbackData = await mockApi.getPipeline(1);
-          setE1Pipeline(fallbackData);
+            // Fallback: If it's not a single doc, look for a collection
+            const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'pipelines');
+            onSnapshot(collectionRef, (snap) => {
+                const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                console.log("✅ Pipeline Found in Collection:", docs);
+                if (docs.length > 0) setE1Pipeline(docs[0]); // Grabs the first one
+            });
         }
-      }
-    );
+    });
 
+    // 2. Listen to LIVE Script Vault
     const unsubScripts = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'scripts'),
       (snap) => {
@@ -62,6 +55,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
       }
     );
 
+    // 3. Listen to LIVE Leads
     const unsubLeads = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'leads'),
       (snap) => {
