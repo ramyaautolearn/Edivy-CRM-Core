@@ -1,85 +1,117 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
-// --- NEW ROCK-SOLID PIPELINE DATABASE ENGINE ---
-const STORAGE_KEY = 'edivy_pipeline_data_v2';
+// --- NEW LIVE FIREBASE PIPELINE ENGINE ---
+const appId = 'edivy-crm-vault';
+const pipelineDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active');
 
-const getDb = () => {
-  const data = localStorage.getItem(STORAGE_KEY);
-  if (data) return JSON.parse(data);
-  return {
-    versions: [{ id: 'v1', name: 'v1.0 - Active Pipeline', status: 'active' }],
+// Helper to reliably fetch or initialize the document
+const getDbData = async () => {
+  const snap = await getDoc(pipelineDocRef);
+  if (snap.exists()) {
+    return snap.data();
+  }
+  // If no pipeline exists yet, create the default structure
+  const defaultData = {
+    versions: [{ id: 'v1', name: 'v1.0 - Active Pipeline', status: 'active', engine: 1 }],
     stages: [],
     tasks: []
   };
+  await setDoc(pipelineDocRef, defaultData);
+  return defaultData;
 };
 
-const saveDb = (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
 const pipelineApi = {
-  getPipelineVersions: async () => getDb().versions,
+  getPipelineVersions: async () => {
+    const data = await getDbData();
+    return data.versions || [];
+  },
+  
   setActiveVersion: async (id) => {
-    const db = getDb();
-    db.versions.forEach(v => v.status = (v.id === id ? 'active' : 'draft'));
-    saveDb(db);
-    return db.versions;
+    const data = await getDbData();
+    if (data.versions) {
+      data.versions.forEach(v => v.status = (v.id === id ? 'active' : 'draft'));
+    }
+    await updateDoc(pipelineDocRef, { versions: data.versions });
+    return data.versions;
   },
+
   duplicatePipelineVersion: async (vId, newName) => {
-    const db = getDb();
+    const data = await getDbData();
     const newVersionId = 'v_' + Date.now();
-    db.versions.push({ id: newVersionId, name: newName, status: 'draft' });
-    saveDb(db);
-    return db.versions;
+    if (!data.versions) data.versions = [];
+    data.versions.push({ id: newVersionId, name: newName, status: 'draft', engine: 1 });
+    await updateDoc(pipelineDocRef, { versions: data.versions });
+    return data.versions;
   },
-  getPipelineStages: async (vId) => getDb().stages.filter(s => s.version_id === vId).sort((a,b) => a.order - b.order),
+
+  getPipelineStages: async (vId) => {
+    const data = await getDbData();
+    return (data.stages || []).filter(s => s.version_id === vId).sort((a,b) => a.order - b.order);
+  },
+
   saveStage: async (stage) => {
-    const db = getDb();
-    db.stages.push({ ...stage, id: 'stage_' + Date.now(), order: db.stages.length });
-    saveDb(db);
+    const data = await getDbData();
+    if (!data.stages) data.stages = [];
+    data.stages.push({ ...stage, id: 'stage_' + Date.now(), order: data.stages.length });
+    await updateDoc(pipelineDocRef, { stages: data.stages });
   },
+
   updateStage: async (id, name) => {
-    const db = getDb();
-    const s = db.stages.find(s => s.id === id);
+    const data = await getDbData();
+    const s = (data.stages || []).find(s => s.id === id);
     if (s) s.name = name;
-    saveDb(db);
+    await updateDoc(pipelineDocRef, { stages: data.stages });
   },
+
   deleteStage: async (id) => {
-    const db = getDb();
-    db.stages = db.stages.filter(s => s.id !== id);
-    db.tasks = db.tasks.filter(t => t.stage_id !== id);
-    saveDb(db);
+    const data = await getDbData();
+    data.stages = (data.stages || []).filter(s => s.id !== id);
+    data.tasks = (data.tasks || []).filter(t => t.stage_id !== id);
+    await updateDoc(pipelineDocRef, { stages: data.stages, tasks: data.tasks });
   },
+
   reorderStages: async (ids) => {
-    const db = getDb();
+    const data = await getDbData();
     ids.forEach((id, idx) => {
-      const s = db.stages.find(x => x.id === id);
+      const s = (data.stages || []).find(x => x.id === id);
       if (s) s.order = idx;
     });
-    saveDb(db);
+    await updateDoc(pipelineDocRef, { stages: data.stages });
   },
-  getTaskTemplates: async (sId) => getDb().tasks.filter(t => t.stage_id === sId).sort((a,b) => a.order - b.order),
+
+  getTaskTemplates: async (sId) => {
+    const data = await getDbData();
+    return (data.tasks || []).filter(t => t.stage_id === sId).sort((a,b) => a.order - b.order);
+  },
+
   saveTaskTemplate: async (task) => {
-    const db = getDb();
+    const data = await getDbData();
+    if (!data.tasks) data.tasks = [];
     if (task.id) {
-      const idx = db.tasks.findIndex(t => t.id === task.id);
-      if (idx > -1) db.tasks[idx] = { ...db.tasks[idx], ...task };
+      const idx = data.tasks.findIndex(t => t.id === task.id);
+      if (idx > -1) data.tasks[idx] = { ...data.tasks[idx], ...task };
     } else {
-      db.tasks.push({ ...task, id: 'task_' + Date.now(), order: db.tasks.length });
+      data.tasks.push({ ...task, id: 'task_' + Date.now(), order: data.tasks.length });
     }
-    saveDb(db);
+    await updateDoc(pipelineDocRef, { tasks: data.tasks });
   },
+
   deleteTaskTemplate: async (id) => {
-    const db = getDb();
-    db.tasks = db.tasks.filter(t => t.id !== id); // Flawless specific deletion
-    saveDb(db);
+    const data = await getDbData();
+    data.tasks = (data.tasks || []).filter(t => t.id !== id);
+    await updateDoc(pipelineDocRef, { tasks: data.tasks });
   },
+
   reorderTasks: async (ids) => {
-    const db = getDb();
+    const data = await getDbData();
     ids.forEach((id, idx) => {
-      const t = db.tasks.find(x => x.id === id);
+      const t = (data.tasks || []).find(x => x.id === id);
       if (t) t.order = idx;
     });
-    saveDb(db);
+    await updateDoc(pipelineDocRef, { tasks: data.tasks });
   }
 };
 // ------------------------------------------------
@@ -194,8 +226,13 @@ export default function AdminPipelineBuilder() {
     if (newTask.delay_unit === 'minutes') multiplier = 1 / (24 * 60);
     else if (newTask.delay_unit === 'hours') multiplier = 1 / 24;
     
+    // We map 'title' to 'name' so Deal Room displays it correctly, 
+    // and 'description' to 'instructions'
     const finalTaskPayload = {
       ...newTask,
+      name: newTask.title,
+      instructions: newTask.description,
+      override_script: newTask.resource_text,
       stage_id: selectedStage.id,
       offset_days: newTask.delay_value * multiplier,
     };
