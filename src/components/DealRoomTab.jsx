@@ -6,6 +6,7 @@ import {
   collection, onSnapshot, doc, updateDoc, serverTimestamp, arrayUnion, getDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { mockApi } from '../data/mockDb';
 
 export default function DealRoomTab({ user, initialLeadId }) {
   const [leads, setLeads] = useState([]);
@@ -16,7 +17,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const [noteText, setNoteText] = useState('');
   const [noteType, setNoteType] = useState('Internal Note'); 
   
-  // LIVE FIREBASE INTELLIGENCE STATE
   const [e1Pipeline, setE1Pipeline] = useState(null);
   const [vaultScripts, setVaultScripts] = useState([]);
   const [showVault, setShowVault] = useState(false);
@@ -26,25 +26,35 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const appId = 'edivy-crm-vault';
   const today = new Date().toISOString().split('T')[0];
 
-  // 🔴 1. WIRED DIRECTLY TO LIVE FIREBASE PIPELINES & SCRIPTS 
   useEffect(() => {
     if (!db || !user?.id) return;
 
-    // 1. Listen to LIVE Pipelines (No more mock data!)
+    // 1. HYPER-AGGRESSIVE PIPELINE FINDER & FALLBACK
     const unsubPipelines = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'pipelines'),
-      (snap) => {
+      async (snap) => {
         const allPipelines = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        console.log("🔥 LIVE PIPELINES FOUND IN DB:", allPipelines); 
         
-        // Find the active E1 pipeline
-        const liveE1 = allPipelines.find(p => p.engine === 1 || p.id === 'engine1' || (p.name && p.name.includes('1'))) || allPipelines[0];
+        // Aggressively search for any pipeline that actually contains a 'stages' array
+        let liveE1 = allPipelines.find(p => p.stages && p.stages.length > 0);
+        
+        // If it's buried in a nested data object
+        if (!liveE1) {
+          const nested = allPipelines.find(p => p.data?.stages && p.data.stages.length > 0);
+          if (nested) liveE1 = nested.data;
+        }
+
         if (liveE1) {
           setE1Pipeline(liveE1);
+        } else {
+          console.warn("⚠️ No live stages found in Firebase. Falling back to local Mock Data so UI works.");
+          const fallbackData = await mockApi.getPipeline(1);
+          setE1Pipeline(fallbackData);
         }
       }
     );
 
-    // 2. Listen to LIVE Script Vault
     const unsubScripts = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'scripts'),
       (snap) => {
@@ -52,7 +62,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
       }
     );
 
-    // 3. Listen to LIVE Leads
     const unsubLeads = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'leads'),
       (snap) => {
@@ -185,9 +194,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
       if (outcome === 'Meeting Booked') {
         updates.temperature = 'Hot';
-        updates.next_follow_up = today; // Action required today
-        
-        // Smart Pipeline Jump: Automatically find your Demo stage and jump to it
+        updates.next_follow_up = today; 
         const demoStage = e1Pipeline?.stages?.find(s => s.name.toLowerCase().includes('demo'))?.name;
         if (demoStage) updates.stage_name = demoStage;
 
@@ -442,7 +449,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                     
                     <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
                     
-                    {/* 🔴 3. DEMO BOOKED BUTTON RESTORED! */}
                     <button 
                       onClick={() => handleOutcome(selectedLead.id, 'Meeting Booked')} 
                       className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-all uppercase tracking-widest shadow-sm flex items-center"
@@ -464,10 +470,8 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   </div>
                 </div>
 
-                {/* 🔴 2. STACKED LAYOUT: Notes Top, Save-Point Bottom */}
                 <div className="flex flex-col gap-6 pb-10">
                   
-                  {/* Log Activity */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center">
                       <FileText className="w-3 h-3 mr-1" /> Log Activity / Notes
@@ -490,7 +494,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                     </form>
                   </div>
 
-                  {/* Tactical Save Point (Follow-Up) */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-6 items-center justify-between">
                     <div className="flex-1">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center">
@@ -515,7 +518,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                     </div>
                   </div>
 
-                  {/* Lead Journey Audit Trail */}
                   <div>
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center">
                       <Calendar className="w-3 h-3 mr-1" /> The Lead Journey (Audit Trail)
