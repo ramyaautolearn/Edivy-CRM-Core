@@ -6,7 +6,6 @@ import {
   collection, onSnapshot, doc, updateDoc, serverTimestamp, arrayUnion, getDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { mockApi } from '../data/mockDb';
 
 export default function DealRoomTab({ user, initialLeadId }) {
   const [leads, setLeads] = useState([]);
@@ -29,33 +28,26 @@ export default function DealRoomTab({ user, initialLeadId }) {
   useEffect(() => {
     if (!db || !user?.id) return;
 
-    // 1. IMPROVED: Smart Pipeline Fetcher
-    const pipelineRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active'); // Attempt to find a doc named 'active'
+    // Smart Pipeline Fetcher
+    const pipelineRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active'); 
     
     const unsubPipelines = onSnapshot(pipelineRef, (docSnap) => {
         if (docSnap.exists()) {
-            console.log("✅ Pipeline Found in Document:", docSnap.data());
             setE1Pipeline(docSnap.data());
         } else {
-            // Fallback: If it's not a single doc, look for a collection
             const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'pipelines');
             onSnapshot(collectionRef, (snap) => {
                 const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                console.log("✅ Pipeline Found in Collection:", docs);
-                if (docs.length > 0) setE1Pipeline(docs[0]); // Grabs the first one
+                if (docs.length > 0) setE1Pipeline(docs[0]); 
             });
         }
     });
 
-    // 2. Listen to LIVE Script Vault
     const unsubScripts = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'scripts'),
-      (snap) => {
-        setVaultScripts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }
+      (snap) => setVaultScripts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     );
 
-    // 3. Listen to LIVE Leads
     const unsubLeads = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'leads'),
       (snap) => {
@@ -248,7 +240,15 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const getCurrentStageData = () => {
     if (!selectedLead || !e1Pipeline || !e1Pipeline.stages) return null;
-    return e1Pipeline.stages.find(s => s.name === selectedLead.stage_name);
+    
+    const stage = e1Pipeline.stages.find(s => s.name === selectedLead.stage_name);
+    if (!stage) return null;
+
+    const stageTasks = (e1Pipeline.tasks || [])
+      .filter(t => t.stage_id === stage.id)
+      .sort((a,b) => a.order - b.order);
+
+    return { ...stage, tasks: stageTasks };
   };
 
   const currentStageData = getCurrentStageData();
@@ -260,6 +260,30 @@ export default function DealRoomTab({ user, initialLeadId }) {
     if (type === 'Meeting') return <Video className="w-3 h-3 text-purple-500" />;
     if (type === 'System') return <Zap className="w-3 h-3 text-amber-500" />;
     return <FileText className="w-3 h-3 text-slate-400" />;
+  };
+
+  // NEW: Smart WhatsApp Handler
+  const handleOpenWhatsApp = () => {
+    if (!selectedLead) return;
+    
+    // 1. Check if a task is currently expanded and has a script
+    let textToCopy = '';
+    if (currentStageData && currentStageData.tasks && expandedTaskId !== null) {
+      const activeTask = currentStageData.tasks[expandedTaskId];
+      if (activeTask && activeTask.override_script) {
+        textToCopy = activeTask.override_script.replace('{contact_name}', selectedLead.contact_name || '');
+      }
+    }
+
+    // 2. If we found a script, copy it to the clipboard
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        console.log("Script copied to clipboard!");
+      }).catch(e => console.log("Clipboard error:", e));
+    }
+
+    // 3. Open WhatsApp
+    window.open(`https://wa.me/${selectedLead.phone}`, '_blank');
   };
 
   return (
@@ -342,7 +366,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
             <div className="flex-1 p-6 bg-slate-50 overflow-y-auto">
               <div className="max-w-4xl mx-auto space-y-6">
                 
-                {/* Score & Profile */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center">
                     <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Target Profile</h5>
@@ -359,7 +382,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   </div>
                 </div>
 
-                {/* THE TACTICAL GAME BOARD */}
                 <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200">
                   <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6 border-b border-slate-100 pb-4 gap-4">
                     <h3 className="text-[10px] font-black text-indigo-800 uppercase tracking-widest flex items-center">
@@ -378,7 +400,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                     </select>
                   </div>
                   
-                  {/* INTERACTIVE CHECKLIST */}
                   {currentStageData && currentStageData.tasks && currentStageData.tasks.length > 0 ? (
                     <div className="mb-6 space-y-3">
                       {currentStageData.tasks.map((task, idx) => {
@@ -431,13 +452,13 @@ export default function DealRoomTab({ user, initialLeadId }) {
                     </div>
                   ) : (
                     <div className="bg-slate-50 p-6 rounded-2xl text-sm font-bold text-slate-400 border border-slate-200 text-center uppercase tracking-widest mb-6">
-                      No Tasks Found. Use the dropdown to select a valid pipeline stage.
+                      No Tasks Found. Please add tasks to this stage in the Pipeline Builder.
                     </div>
                   )}
                   
-                  {/* TACTICAL ACTION BAR */}
                   <div className="flex flex-wrap gap-3 items-center border-t border-slate-100 pt-6">
-                    <button onClick={() => window.open(`https://wa.me/${selectedLead.phone}`, '_blank')} className="bg-emerald-500 text-white font-black py-2.5 px-5 rounded-xl shadow-md hover:bg-emerald-600 transition-all uppercase text-[10px] tracking-widest flex items-center">
+                    {/* SMART WHATSAPP BUTTON */}
+                    <button onClick={handleOpenWhatsApp} className="bg-emerald-500 text-white font-black py-2.5 px-5 rounded-xl shadow-md hover:bg-emerald-600 transition-all uppercase text-[10px] tracking-widest flex items-center">
                       <Send className="w-4 h-4 mr-2" /> Open WhatsApp
                     </button>
                     
