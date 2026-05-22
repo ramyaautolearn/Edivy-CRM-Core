@@ -115,6 +115,11 @@ export default function DealRoomTab({ user, initialLeadId }) {
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
       logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Tactical Bypass: Force Unlocked Task "${taskName}" out of sequence.`, agent: user?.name || 'Agent' })
     });
+    setExpandedTaskId(currentStageData?.tasks?.findIndex(t => `${currentStageData.name}::${t.name}` === taskKey));
+  };
+
+  const handleReLock = (taskKey) => {
+    setUnlockedTasks(prev => prev.filter(k => k !== taskKey));
   };
 
   const handleOutcome = async (leadId, outcome) => {
@@ -169,6 +174,33 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return <FileText className="w-3 h-3 text-slate-400" />;
   };
 
+  // NEW: Dynamic Exact Due Date Calculator
+  const getTaskDueDate = (task, idx) => {
+    if (!task.delay_value || task.delay_value === 0) return "Action Required Now";
+
+    let baseDate = null;
+    if (idx === 0) {
+      // Find when they entered the stage
+      const stageLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Jumped to Pipeline Stage: ${currentStageData.name}`));
+      if (stageLog) baseDate = new Date(stageLog.date);
+    } else {
+      // Find when previous task was finished
+      const prevTaskName = currentStageData.tasks[idx-1].name;
+      const prevLog = [...(selectedLead.logs || [])].reverse().find(l => l.text === `Completed Task: ${prevTaskName}`);
+      if (prevLog) baseDate = new Date(prevLog.date);
+    }
+
+    if (!baseDate) return `Target: +${task.delay_value} ${task.delay_unit}`; // Fallback
+
+    let delayMs = 0;
+    if (task.delay_unit === 'minutes') delayMs = task.delay_value * 60000;
+    if (task.delay_unit === 'hours') delayMs = task.delay_value * 3600000;
+    if (task.delay_unit === 'days') delayMs = task.delay_value * 86400000;
+
+    const dueDate = new Date(baseDate.getTime() + delayMs);
+    return `Due: ${dueDate.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+  };
+
   const handleOpenWhatsApp = (customScript = null) => {
     if (!selectedLead) return;
     let textToCopy = customScript || '';
@@ -182,7 +214,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
       navigator.clipboard.writeText(textToCopy).catch(e => console.log("Clipboard error:", e));
       window.open(`https://wa.me/${selectedLead.phone}`, '_blank');
     } else {
-      alert("⚠️ Script Required: This task does not have a manual script configured in the Pipeline Builder. Please write a message manually in WhatsApp or pick a script from the Vault.");
+      alert("⚠️ Script Required: This task does not have a manual script configured in the Pipeline Builder. Please write a message manually in WhatsApp or pick a script from the Vault Pivot.");
       window.open(`https://wa.me/${selectedLead.phone}`, '_blank');
     }
   };
@@ -266,7 +298,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                     </select>
                   </div>
                   
-                  {/* PROGRESSIVE DISCLOSURE CHECKLIST (SMART TASK LOCKING) */}
+                  {/* SMART TASK LOCKING WITH EXPLICIT DUE DATES */}
                   {currentStageData && currentStageData.tasks && currentStageData.tasks.length > 0 ? (
                     <div className="mb-6 space-y-3">
                       {currentStageData.tasks.map((task, idx) => {
@@ -276,9 +308,14 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
                         const prevTaskKey = idx > 0 ? `${currentStageData.name}::${currentStageData.tasks[idx-1].name}` : null;
                         const isPrevCompleted = idx === 0 || currentCompleted.includes(prevTaskKey);
+                        
+                        const isForceUnlocked = !isPrevCompleted && unlockedTasks.includes(taskKey);
                         const isLocked = !isPrevCompleted && !unlockedTasks.includes(taskKey) && !isCompleted;
                         
                         const isExpanded = expandedTaskId === idx && !isLocked;
+                        
+                        // Parse EXACT Due Date
+                        const exactDueDate = getTaskDueDate(task, idx);
 
                         return (
                           <div key={idx} className={`border rounded-xl transition-all duration-200 overflow-hidden ${isLocked ? 'bg-slate-50/50 border-slate-200 opacity-70' : isCompleted ? 'bg-emerald-50/30 border-emerald-200' : 'bg-white border-slate-200 shadow-sm'}`}>
@@ -290,12 +327,23 @@ export default function DealRoomTab({ user, initialLeadId }) {
                                 <span className={`font-black text-sm tracking-tight ${isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                                   Task {idx + 1}: {task.name}
                                 </span>
-                                {task.delay_value > 0 && <span className="text-[9px] text-slate-400 font-bold ml-2 hidden sm:inline-block bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm">Target: +{task.delay_value} {task.delay_unit}</span>}
+                                {/* EXACT DUE DATE DISPLAY */}
+                                {!isCompleted && (
+                                    <span className="text-[9px] text-slate-500 font-bold ml-2 hidden sm:inline-block bg-white border border-slate-200 px-2 py-1 rounded-md shadow-sm">
+                                      {exactDueDate}
+                                    </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-4">
+                                {/* FORCE UNLOCK / RE-LOCK BUTTONS */}
                                 {isLocked && (
                                    <button onClick={(e) => { e.stopPropagation(); handleForceUnlock(taskKey, task.name); }} className="text-[8px] font-black uppercase tracking-widest bg-white border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 px-2.5 py-1.5 rounded shadow-sm transition-colors flex items-center">
                                       <Unlock className="w-3 h-3 mr-1" /> Force Unlock
+                                   </button>
+                                )}
+                                {isForceUnlocked && !isCompleted && (
+                                   <button onClick={(e) => { e.stopPropagation(); handleReLock(taskKey); }} className="text-[8px] font-black uppercase tracking-widest bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100 px-2.5 py-1.5 rounded shadow-sm transition-colors flex items-center">
+                                      <Lock className="w-3 h-3 mr-1" /> Re-Lock Task
                                    </button>
                                 )}
                                 {isLocked ? <Lock className="w-4 h-4 text-slate-300" /> : isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
@@ -329,6 +377,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                       <Send className="w-4 h-4 mr-2" /> Send via WhatsApp
                     </button>
                     
+                    {/* MEDIA LINK BUTTON */}
                     {activeTask?.media_url && (
                         <button onClick={() => window.open(activeTask.media_url, '_blank')} className="bg-indigo-50 text-indigo-600 border border-indigo-200 font-black py-2.5 px-4 rounded-xl shadow-sm hover:bg-indigo-100 transition-all uppercase text-[10px] tracking-widest flex items-center">
                             <LinkIcon className="w-4 h-4 mr-1.5" /> View Media
