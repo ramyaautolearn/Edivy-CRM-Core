@@ -1,43 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog, Link as LinkIcon } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
-// --- NEW LIVE FIREBASE PIPELINE ENGINE ---
 const appId = 'edivy-crm-vault';
 const pipelineDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active');
 
-// Helper to reliably fetch or initialize the document
 const getDbData = async () => {
   const snap = await getDoc(pipelineDocRef);
-  if (snap.exists()) {
-    return snap.data();
-  }
-  // If no pipeline exists yet, create the default structure
-  const defaultData = {
-    versions: [{ id: 'v1', name: 'v1.0 - Active Pipeline', status: 'active', engine: 1 }],
-    stages: [],
-    tasks: []
-  };
+  if (snap.exists()) return snap.data();
+  const defaultData = { versions: [{ id: 'v1', name: 'v1.0 - Active Pipeline', status: 'active', engine: 1 }], stages: [], tasks: [] };
   await setDoc(pipelineDocRef, defaultData);
   return defaultData;
 };
 
 const pipelineApi = {
-  getPipelineVersions: async () => {
-    const data = await getDbData();
-    return data.versions || [];
-  },
-  
+  getPipelineVersions: async () => (await getDbData()).versions || [],
   setActiveVersion: async (id) => {
     const data = await getDbData();
-    if (data.versions) {
-      data.versions.forEach(v => v.status = (v.id === id ? 'active' : 'draft'));
-    }
+    if (data.versions) data.versions.forEach(v => v.status = (v.id === id ? 'active' : 'draft'));
     await updateDoc(pipelineDocRef, { versions: data.versions });
     return data.versions;
   },
-
   duplicatePipelineVersion: async (vId, newName) => {
     const data = await getDbData();
     const newVersionId = 'v_' + Date.now();
@@ -46,47 +30,31 @@ const pipelineApi = {
     await updateDoc(pipelineDocRef, { versions: data.versions });
     return data.versions;
   },
-
-  getPipelineStages: async (vId) => {
-    const data = await getDbData();
-    return (data.stages || []).filter(s => s.version_id === vId).sort((a,b) => a.order - b.order);
-  },
-
+  getPipelineStages: async (vId) => ((await getDbData()).stages || []).filter(s => s.version_id === vId).sort((a,b) => a.order - b.order),
   saveStage: async (stage) => {
     const data = await getDbData();
     if (!data.stages) data.stages = [];
     data.stages.push({ ...stage, id: 'stage_' + Date.now(), order: data.stages.length });
     await updateDoc(pipelineDocRef, { stages: data.stages });
   },
-
   updateStage: async (id, name) => {
     const data = await getDbData();
     const s = (data.stages || []).find(s => s.id === id);
     if (s) s.name = name;
     await updateDoc(pipelineDocRef, { stages: data.stages });
   },
-
   deleteStage: async (id) => {
     const data = await getDbData();
     data.stages = (data.stages || []).filter(s => s.id !== id);
     data.tasks = (data.tasks || []).filter(t => t.stage_id !== id);
     await updateDoc(pipelineDocRef, { stages: data.stages, tasks: data.tasks });
   },
-
   reorderStages: async (ids) => {
     const data = await getDbData();
-    ids.forEach((id, idx) => {
-      const s = (data.stages || []).find(x => x.id === id);
-      if (s) s.order = idx;
-    });
+    ids.forEach((id, idx) => { const s = (data.stages || []).find(x => x.id === id); if (s) s.order = idx; });
     await updateDoc(pipelineDocRef, { stages: data.stages });
   },
-
-  getTaskTemplates: async (sId) => {
-    const data = await getDbData();
-    return (data.tasks || []).filter(t => t.stage_id === sId).sort((a,b) => a.order - b.order);
-  },
-
+  getTaskTemplates: async (sId) => ((await getDbData()).tasks || []).filter(t => t.stage_id === sId).sort((a,b) => a.order - b.order),
   saveTaskTemplate: async (task) => {
     const data = await getDbData();
     if (!data.tasks) data.tasks = [];
@@ -98,24 +66,17 @@ const pipelineApi = {
     }
     await updateDoc(pipelineDocRef, { tasks: data.tasks });
   },
-
   deleteTaskTemplate: async (id) => {
     const data = await getDbData();
     data.tasks = (data.tasks || []).filter(t => t.id !== id);
     await updateDoc(pipelineDocRef, { tasks: data.tasks });
   },
-
   reorderTasks: async (ids) => {
     const data = await getDbData();
-    ids.forEach((id, idx) => {
-      const t = (data.tasks || []).find(x => x.id === id);
-      if (t) t.order = idx;
-    });
+    ids.forEach((id, idx) => { const t = (data.tasks || []).find(x => x.id === id); if (t) t.order = idx; });
     await updateDoc(pipelineDocRef, { tasks: data.tasks });
   }
 };
-// ------------------------------------------------
-
 
 export default function AdminPipelineBuilder() {
   const [versions, setVersions] = useState([]);
@@ -131,7 +92,7 @@ export default function AdminPipelineBuilder() {
   const [newTask, setNewTask] = useState({
     id: null, title: '', description: '', execution_type: 'human', is_mandatory: true,
     delay_value: 0, delay_unit: 'minutes', type: 'whatsapp', priority: 2,
-    ai_guidance: '', failure_action: 'none', resource_text: '', resource_url: '',
+    ai_guidance: '', failure_action: 'none', resource_text: '', media_url: '',
   });
   
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
@@ -141,8 +102,7 @@ export default function AdminPipelineBuilder() {
   const loadVersions = async () => {
     const vData = await pipelineApi.getPipelineVersions();
     setVersions(vData);
-    if (vData.length > 0 && !selectedVersion)
-      setSelectedVersion(vData.find((v) => v.status === 'active') || vData[0]);
+    if (vData.length > 0 && !selectedVersion) setSelectedVersion(vData.find((v) => v.status === 'active') || vData[0]);
   };
 
   useEffect(() => { if (selectedVersion) loadStages(selectedVersion.id); }, [selectedVersion]);
@@ -155,9 +115,7 @@ export default function AdminPipelineBuilder() {
     else { setSelectedStage(null); setTasks([]); }
   };
 
-  useEffect(() => {
-    if (selectedStage) pipelineApi.getTaskTemplates(selectedStage.id).then(setTasks);
-  }, [selectedStage]);
+  useEffect(() => { if (selectedStage) pipelineApi.getTaskTemplates(selectedStage.id).then(setTasks); }, [selectedStage]);
 
   const handleCreateVersion = async () => {
     const newName = prompt('Enter a name for the new Draft version:');
@@ -182,11 +140,7 @@ export default function AdminPipelineBuilder() {
   };
 
   const handleDeleteStage = async (id) => {
-    if (window.confirm('Delete this stage?')) {
-      await pipelineApi.deleteStage(id);
-      if (selectedStage?.id === id) setSelectedStage(null);
-      loadStages();
-    }
+    if (window.confirm('Delete this stage?')) { await pipelineApi.deleteStage(id); if (selectedStage?.id === id) setSelectedStage(null); loadStages(); }
   };
 
   const handleSaveStageEdit = async (id) => {
@@ -208,13 +162,14 @@ export default function AdminPipelineBuilder() {
       setNewTask({ 
         ...task, delay_value: val, delay_unit: unit,
         execution_type: task.execution_type || 'human',
-        ai_guidance: task.ai_guidance || '', failure_action: task.failure_action || 'none'
+        ai_guidance: task.ai_guidance || '', failure_action: task.failure_action || 'none',
+        media_url: task.media_url || ''
       });
     } else {
       setNewTask({
         id: null, title: '', description: '', execution_type: 'human', is_mandatory: true,
         delay_value: 0, delay_unit: 'minutes', type: 'whatsapp', priority: 2,
-        ai_guidance: '', failure_action: 'none', resource_text: '', resource_url: '',
+        ai_guidance: '', failure_action: 'none', resource_text: '', media_url: '',
       });
     }
     setIsTaskFormOpen(true);
@@ -226,13 +181,12 @@ export default function AdminPipelineBuilder() {
     if (newTask.delay_unit === 'minutes') multiplier = 1 / (24 * 60);
     else if (newTask.delay_unit === 'hours') multiplier = 1 / 24;
     
-    // We map 'title' to 'name' so Deal Room displays it correctly, 
-    // and 'description' to 'instructions'
     const finalTaskPayload = {
       ...newTask,
       name: newTask.title,
       instructions: newTask.description,
       override_script: newTask.resource_text,
+      media_url: newTask.media_url || '',
       stage_id: selectedStage.id,
       offset_days: newTask.delay_value * multiplier,
     };
@@ -243,32 +197,23 @@ export default function AdminPipelineBuilder() {
   };
 
   const handleDeleteTask = async (id) => {
-    if (window.confirm('Delete task?')) {
-      await pipelineApi.deleteTaskTemplate(id);
-      setTasks(await pipelineApi.getTaskTemplates(selectedStage.id));
-    }
+    if (window.confirm('Delete task?')) { await pipelineApi.deleteTaskTemplate(id); setTasks(await pipelineApi.getTaskTemplates(selectedStage.id)); }
   };
 
   const moveStage = async (e, index, direction) => {
     e.stopPropagation();
     if ((direction === -1 && index === 0) || (direction === 1 && index === stages.length - 1)) return;
     const newStages = [...stages];
-    const temp = newStages[index];
-    newStages[index] = newStages[index + direction];
-    newStages[index + direction] = temp;
-    setStages(newStages);
-    await pipelineApi.reorderStages(newStages.map(s => s.id));
+    const temp = newStages[index]; newStages[index] = newStages[index + direction]; newStages[index + direction] = temp;
+    setStages(newStages); await pipelineApi.reorderStages(newStages.map(s => s.id));
   };
 
   const moveTask = async (e, index, direction) => {
     e.stopPropagation();
     if ((direction === -1 && index === 0) || (direction === 1 && index === tasks.length - 1)) return;
     const newTasks = [...tasks];
-    const temp = newTasks[index];
-    newTasks[index] = newTasks[index + direction];
-    newTasks[index + direction] = temp;
-    setTasks(newTasks);
-    await pipelineApi.reorderTasks(newTasks.map(t => t.id));
+    const temp = newTasks[index]; newTasks[index] = newTasks[index + direction]; newTasks[index + direction] = temp;
+    setTasks(newTasks); await pipelineApi.reorderTasks(newTasks.map(t => t.id));
   };
 
   const renderExecutionBadge = (type) => {
@@ -384,7 +329,7 @@ export default function AdminPipelineBuilder() {
                         <div className="flex items-center gap-3 mb-1">
                           {renderExecutionBadge(task.execution_type)}
                           <h4 className="font-black text-gray-800 text-sm">{task.title}</h4>
-                          {task.priority === 3 && <span className="text-[9px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded border border-red-200 uppercase tracking-widest">High Priority</span>}
+                          {task.media_url && <LinkIcon className="w-3.5 h-3.5 text-indigo-400" title="Media Attached" />}
                         </div>
                         <p className="text-xs font-medium text-gray-500 mt-1">{task.description}</p>
                       </div>
@@ -449,21 +394,29 @@ export default function AdminPipelineBuilder() {
                       </div>
                     </div>
 
-                    <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5 space-y-4">
+                    {/* DUAL-BOX SCRIPT UI */}
+                    <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5 space-y-5">
                       <h4 className="font-black text-indigo-900 text-[10px] uppercase tracking-widest flex items-center">
-                        <Bot className="w-4 h-4 mr-2 text-indigo-500" /> AI Guidance Rules (Optional)
+                        <Bot className="w-4 h-4 mr-2 text-indigo-500" /> Execution Scripts & AI Auto-Pilot
                       </h4>
-                      <div>
-                        <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-indigo-200 rounded-lg px-4 py-3 text-sm text-slate-700 bg-white outline-none focus:border-indigo-500" rows="2" placeholder="e.g., Elite -> Strategic Tone. Avoid saying 'cheap'..." />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Override Script (Blank = AI Smart Script)</label>
-                           <input type="text" value={newTask.resource_text} onChange={(e) => setNewTask({ ...newTask, resource_text: e.target.value })} className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="Static fallback text..." />
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">1. Exact Manual Script (Gold Standard)</label>
+                           <textarea value={newTask.resource_text} onChange={(e) => setNewTask({ ...newTask, resource_text: e.target.value })} className="w-full border border-indigo-200 rounded-xl px-4 py-3 text-sm bg-white outline-none focus:border-indigo-500 min-h-[120px] shadow-sm" placeholder="Hi {contact_name}, here is the info you requested..." />
                         </div>
                         <div>
-                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Failure Action (If no reply / invalid)</label>
-                           <select value={newTask.failure_action} onChange={(e) => setNewTask({ ...newTask, failure_action: e.target.value })} className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white font-bold text-red-600">
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">2. AI Generation Prompt (Auto-Pilot)</label>
+                           <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/50 outline-none focus:border-purple-500 min-h-[120px] shadow-sm" placeholder="Review previous chat. Write a casual 2-sentence reply offering a demo..." />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-indigo-100">
+                        <div>
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center"><LinkIcon className="w-3 h-3 mr-1" /> Media Attachment (URL)</label>
+                           <input type="text" value={newTask.media_url} onChange={(e) => setNewTask({ ...newTask, media_url: e.target.value })} className="w-full border border-indigo-200 rounded-lg px-4 py-2.5 text-sm bg-white shadow-sm" placeholder="https://link-to-flyer.pdf" />
+                        </div>
+                        <div>
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Failure Action (If no reply / invalid)</label>
+                           <select value={newTask.failure_action} onChange={(e) => setNewTask({ ...newTask, failure_action: e.target.value })} className="w-full border border-indigo-200 rounded-lg px-4 py-2.5 text-sm bg-white font-bold text-red-600 shadow-sm">
                              <option value="none">Keep in Engine 1</option>
                              <option value="e2_eject">Eject to Engine 2 (Nurture)</option>
                              <option value="update_lead">Flag Lead as Invalid</option>
