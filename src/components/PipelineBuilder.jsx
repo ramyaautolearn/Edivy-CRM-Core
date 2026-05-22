@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog, Link as LinkIcon } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog, Link as LinkIcon, Sparkles } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
@@ -163,6 +163,7 @@ export default function AdminPipelineBuilder() {
         ...task, delay_value: val, delay_unit: unit,
         execution_type: task.execution_type || 'human',
         ai_guidance: task.ai_guidance || '', failure_action: task.failure_action || 'none',
+        resource_text: task.override_script || task.resource_text || '', // handle legacy mapped names
         media_url: task.media_url || ''
       });
     } else {
@@ -173,6 +174,10 @@ export default function AdminPipelineBuilder() {
       });
     }
     setIsTaskFormOpen(true);
+  };
+
+  const handleGenerateAIPreview = () => {
+    alert("OpenAI Integration Pending: Once wired, this will send your prompt to OpenAI and drop the generated message into the 'Approved Script' box on the right!");
   };
 
   const handleSaveTask = async (e) => {
@@ -186,6 +191,7 @@ export default function AdminPipelineBuilder() {
       name: newTask.title,
       instructions: newTask.description,
       override_script: newTask.resource_text,
+      ai_guidance: newTask.ai_guidance,
       media_url: newTask.media_url || '',
       stage_id: selectedStage.id,
       offset_days: newTask.delay_value * multiplier,
@@ -328,10 +334,10 @@ export default function AdminPipelineBuilder() {
                       <div className="flex-1 py-1">
                         <div className="flex items-center gap-3 mb-1">
                           {renderExecutionBadge(task.execution_type)}
-                          <h4 className="font-black text-gray-800 text-sm">{task.title}</h4>
+                          <h4 className="font-black text-gray-800 text-sm">{task.name || task.title}</h4>
                           {task.media_url && <LinkIcon className="w-3.5 h-3.5 text-indigo-400" title="Media Attached" />}
                         </div>
-                        <p className="text-xs font-medium text-gray-500 mt-1">{task.description}</p>
+                        <p className="text-xs font-medium text-gray-500 mt-1">{task.instructions || task.description}</p>
                       </div>
                       <div className="flex space-x-1 py-1">
                         <button onClick={() => openTaskForm(task)} className="p-2 text-gray-400 hover:text-indigo-600 h-max"><Edit className="w-4 h-4" /></button>
@@ -366,7 +372,7 @@ export default function AdminPipelineBuilder() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Agent Instructions</label>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Agent Instructions (Internal)</label>
                       <textarea value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })} className="w-full border border-slate-200 bg-white rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-indigo-500" rows="2" required />
                     </div>
 
@@ -394,22 +400,31 @@ export default function AdminPipelineBuilder() {
                       </div>
                     </div>
 
-                    {/* DUAL-BOX SCRIPT UI */}
+                    {/* NEW: UNIFIED SIDE-BY-SIDE SCRIPT UI */}
                     <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5 space-y-5">
                       <h4 className="font-black text-indigo-900 text-[10px] uppercase tracking-widest flex items-center">
                         <Bot className="w-4 h-4 mr-2 text-indigo-500" /> Execution Scripts & AI Auto-Pilot
                       </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">1. Exact Manual Script (Gold Standard)</label>
-                           <textarea value={newTask.resource_text} onChange={(e) => setNewTask({ ...newTask, resource_text: e.target.value })} className="w-full border border-indigo-200 rounded-xl px-4 py-3 text-sm bg-white outline-none focus:border-indigo-500 min-h-[120px] shadow-sm" placeholder="Hi {contact_name}, here is the info you requested..." />
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* LEFT BOX: AI Prompt */}
+                        <div className="flex flex-col">
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-purple-600 mb-2">1. AI Guidance Prompt (The Brain)</label>
+                           <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/30 outline-none focus:border-purple-500 min-h-[160px] shadow-sm mb-3" placeholder="e.g., Review previous chat logs. Write a casual 2-sentence reply offering a demo..." />
+                           <button type="button" onClick={handleGenerateAIPreview} className="w-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-xl shadow-md hover:bg-purple-700 transition flex items-center justify-center">
+                             <Sparkles className="w-3.5 h-3.5 mr-2" /> Generate Script
+                           </button>
                         </div>
-                        <div>
-                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">2. AI Generation Prompt (Auto-Pilot)</label>
-                           <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/50 outline-none focus:border-purple-500 min-h-[120px] shadow-sm" placeholder="Review previous chat. Write a casual 2-sentence reply offering a demo..." />
+
+                        {/* RIGHT BOX: Manual Script */}
+                        <div className="flex flex-col">
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">2. Approved Script (The Output)</label>
+                           <textarea value={newTask.resource_text} onChange={(e) => setNewTask({ ...newTask, resource_text: e.target.value })} className="w-full border border-indigo-200 rounded-xl px-4 py-3 text-sm bg-white outline-none focus:border-indigo-500 flex-1 min-h-[160px] shadow-sm" placeholder="Hi {contact_name}, here is the info you requested..." />
+                           <p className="text-[9px] font-bold text-slate-400 mt-3 text-center uppercase tracking-widest">Agents will copy exactly what is in this box.</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-indigo-100">
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-indigo-100">
                         <div>
                            <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center"><LinkIcon className="w-3 h-3 mr-1" /> Media Attachment (URL)</label>
                            <input type="text" value={newTask.media_url} onChange={(e) => setNewTask({ ...newTask, media_url: e.target.value })} className="w-full border border-indigo-200 rounded-lg px-4 py-2.5 text-sm bg-white shadow-sm" placeholder="https://link-to-flyer.pdf" />
