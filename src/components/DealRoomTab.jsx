@@ -174,31 +174,41 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return <FileText className="w-3 h-3 text-slate-400" />;
   };
 
-  // NEW: Dynamic Exact Due Date Calculator
+  // --- NEW: Dynamic Rolling Exact Date Calculator ---
   const getTaskDueDate = (task, idx) => {
-    if (!task.delay_value || task.delay_value === 0) return "Action Required Now";
-
     let baseDate = null;
+    let isEstimated = false;
+
     if (idx === 0) {
-      // Find when they entered the stage
-      const stageLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Jumped to Pipeline Stage: ${currentStageData.name}`));
-      if (stageLog) baseDate = new Date(stageLog.date);
+      // Find when they entered this stage
+      const stageLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Jumped to Pipeline Stage`));
+      baseDate = stageLog ? new Date(stageLog.date) : new Date();
     } else {
-      // Find when previous task was finished
+      // Find when the previous task was actually finished
       const prevTaskName = currentStageData.tasks[idx-1].name;
-      const prevLog = [...(selectedLead.logs || [])].reverse().find(l => l.text === `Completed Task: ${prevTaskName}`);
-      if (prevLog) baseDate = new Date(prevLog.date);
+      const prevLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Completed Task: ${prevTaskName}`));
+      if (prevLog) {
+        baseDate = new Date(prevLog.date);
+      } else {
+        // If previous task isn't done, we estimate the date starting from right NOW.
+        baseDate = new Date();
+        isEstimated = true;
+      }
     }
 
-    if (!baseDate) return `Target: +${task.delay_value} ${task.delay_unit}`; // Fallback
-
+    // Add the delays mathematically
     let delayMs = 0;
-    if (task.delay_unit === 'minutes') delayMs = task.delay_value * 60000;
-    if (task.delay_unit === 'hours') delayMs = task.delay_value * 3600000;
-    if (task.delay_unit === 'days') delayMs = task.delay_value * 86400000;
+    if (task.delay_value) {
+      if (task.delay_unit === 'minutes') delayMs = task.delay_value * 60000;
+      if (task.delay_unit === 'hours') delayMs = task.delay_value * 3600000;
+      if (task.delay_unit === 'days') delayMs = task.delay_value * 86400000;
+    }
 
     const dueDate = new Date(baseDate.getTime() + delayMs);
-    return `Due: ${dueDate.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+    const dateString = dueDate.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+    // Show "Est:" if projecting, "Due:" if it's a hard deadline based on a finished task
+    return isEstimated ? `Est: ${dateString}` : `Due: ${dateString}`;
   };
 
   const handleOpenWhatsApp = (customScript = null) => {
@@ -314,7 +324,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                         
                         const isExpanded = expandedTaskId === idx && !isLocked;
                         
-                        // Parse EXACT Due Date
                         const exactDueDate = getTaskDueDate(task, idx);
 
                         return (
@@ -329,7 +338,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                                 </span>
                                 {/* EXACT DUE DATE DISPLAY */}
                                 {!isCompleted && (
-                                    <span className="text-[9px] text-slate-500 font-bold ml-2 hidden sm:inline-block bg-white border border-slate-200 px-2 py-1 rounded-md shadow-sm">
+                                    <span className={`text-[9px] font-bold ml-2 hidden sm:inline-block border px-2 py-1 rounded-md shadow-sm ${exactDueDate.includes('Est:') ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                                       {exactDueDate}
                                     </span>
                                 )}
@@ -343,7 +352,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                                 )}
                                 {isForceUnlocked && !isCompleted && (
                                    <button onClick={(e) => { e.stopPropagation(); handleReLock(taskKey); }} className="text-[8px] font-black uppercase tracking-widest bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100 px-2.5 py-1.5 rounded shadow-sm transition-colors flex items-center">
-                                      <Lock className="w-3 h-3 mr-1" /> Re-Lock Task
+                                      <Lock className="w-3 h-3 mr-1" /> Re-Lock
                                    </button>
                                 )}
                                 {isLocked ? <Lock className="w-4 h-4 text-slate-300" /> : isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
