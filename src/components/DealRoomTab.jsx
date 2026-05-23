@@ -174,7 +174,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return <FileText className="w-3 h-3 text-slate-400" />;
   };
 
-  // --- NEW: Dynamic Rolling Exact Date Calculator ---
+  // --- BUG FIX: State vs. History Time Reversal Logic ---
   const getTaskDueDate = (task, idx) => {
     let baseDate = null;
     let isEstimated = false;
@@ -184,13 +184,17 @@ export default function DealRoomTab({ user, initialLeadId }) {
       const stageLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Jumped to Pipeline Stage`));
       baseDate = stageLog ? new Date(stageLog.date) : new Date();
     } else {
-      // Find when the previous task was actually finished
       const prevTaskName = currentStageData.tasks[idx-1].name;
-      const prevLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Completed Task: ${prevTaskName}`));
-      if (prevLog) {
-        baseDate = new Date(prevLog.date);
+      const prevTaskKey = `${currentStageData.name}::${prevTaskName}`;
+      const currentCompleted = selectedLead.completed_tasks || [];
+      const isPrevCurrentlyCompleted = currentCompleted.includes(prevTaskKey);
+
+      // ONLY look for the log if it is actively checked off right now
+      if (isPrevCurrentlyCompleted) {
+        const prevLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Completed Task: ${prevTaskName}`));
+        baseDate = prevLog ? new Date(prevLog.date) : new Date();
       } else {
-        // If previous task isn't done, we estimate the date starting from right NOW.
+        // If previous task isn't currently done (or was undone), we estimate the date starting from right NOW.
         baseDate = new Date();
         isEstimated = true;
       }
