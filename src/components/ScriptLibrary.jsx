@@ -3,7 +3,8 @@ import {
   BookOpen, Plus, Filter, Upload, Edit, Trash2, Zap, X, Save,
   Wand2, Paperclip, Loader2, MessageSquare, Lightbulb, CheckCircle2
 } from 'lucide-react';
-import { mockApi } from '../data/mockDb';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase'; // Ensure this path points to your firebase config
 
 export default function ScriptLibrary() {
   const [scripts, setScripts] = useState([]);
@@ -24,17 +25,19 @@ export default function ScriptLibrary() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiReasoning, setAiReasoning] = useState('');
 
-  useEffect(() => { loadScripts(); }, []);
+  const appId = 'edivy-crm-vault';
 
-  const loadScripts = async () => {
-    try {
-      const data = await mockApi.getScripts();
-      setScripts(data || []);
-    } catch (error) {
-      console.warn("Failed to load scripts from mockDb", error);
-      setScripts([]);
-    }
-  };
+  // --- 1. FIREBASE REAL-TIME SYNC ---
+  useEffect(() => {
+    if (!db) return;
+    const unsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scripts'), (snap) => {
+      const fetchedScripts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort by newest first based on created_at or ID
+      fetchedScripts.sort((a, b) => b.id.localeCompare(a.id));
+      setScripts(fetchedScripts);
+    });
+    return () => unsub();
+  }, []);
 
   const openScriptModal = (script = null) => {
     setIsAiMode(false);
@@ -53,7 +56,7 @@ export default function ScriptLibrary() {
     setIsScriptModalOpen(true);
   };
 
-  // --- BULLETPROOF SAVE LOGIC ---
+  // --- 2. FIREBASE SAVE LOGIC ---
   const handleSaveScript = async (e) => {
     e.preventDefault();
     
@@ -61,56 +64,60 @@ export default function ScriptLibrary() {
     // Force a unique ID if it's a new script
     if (!finalScript.id) {
       finalScript.id = 'script_' + Date.now(); 
+      finalScript.created_at = serverTimestamp();
     }
+    finalScript.updated_at = serverTimestamp();
     
     try {
-      // Try to save to the mock DB
-      await mockApi.saveScript(finalScript);
+      // Save directly to the live Firebase database!
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'scripts', finalScript.id), finalScript);
+      setIsScriptModalOpen(false);
     } catch (error) {
-      console.warn("MockDB save failed, forcing local state update", error);
+      console.error("Firebase save failed", error);
+      alert("Failed to save script. Check your database connection.");
     }
-
-    // Forcefully update the UI state so it appears immediately!
-    setScripts(prevScripts => {
-      const exists = prevScripts.find(s => s.id === finalScript.id);
-      if (exists) {
-        return prevScripts.map(s => s.id === finalScript.id ? finalScript : s);
-      } else {
-        return [finalScript, ...prevScripts];
-      }
-    });
-
-    setIsScriptModalOpen(false);
   };
 
+  // --- 3. FIREBASE DELETE LOGIC ---
+  const handleDelete = async (id) => {
+    if (window.confirm('Are you sure you want to permanently delete this script from the Vault?')) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'scripts', id));
+        setIsScriptModalOpen(false); // Close modal if deleting while editing
+      } catch (error) {
+        console.error("Firebase delete failed", error);
+        alert("Failed to delete script.");
+      }
+    }
+  };
+
+  // --- 4. FIREBASE BULK IMPORT LOGIC ---
   const handleImport = async (e) => {
     e.preventDefault();
     try {
       const parsedData = JSON.parse(importJsonText);
       const scriptArray = Array.isArray(parsedData) ? parsedData : [parsedData];
-      const result = await mockApi.importScripts(scriptArray);
-      alert(`Successfully imported ${result.count} structured scripts!`);
+      
+      let count = 0;
+      for (const script of scriptArray) {
+        const id = script.id || 'script_' + Date.now() + Math.random().toString(36).substr(2, 5);
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'scripts', id), {
+            ...script,
+            id: id,
+            created_at: serverTimestamp(),
+        });
+        count++;
+      }
+      
+      alert(`Successfully imported ${count} structured scripts to Live Firebase!`);
       setIsImportModalOpen(false);
       setImportJsonText('');
-      loadScripts();
     } catch (err) {
-      alert('Invalid JSON format. Please ensure the input is a valid JSON array.');
+      alert('Invalid JSON format or DB Error. Please ensure the input is a valid JSON array.');
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Delete this script?')) {
-      try {
-        await mockApi.deleteScript(id);
-      } catch (error) {
-        console.warn("MockDB delete failed, forcing local state update", error);
-      }
-      // Force UI update
-      setScripts(prev => prev.filter(s => s.id !== id));
-    }
-  };
-
-  // --- SMARTER MOCK AI GENERATOR ---
+  // --- MOCK AI GENERATOR (Remains Intact) ---
   const handleGenerateAI = async () => {
     if (!aiPromptInstruction.trim() && !incomingContext.trim()) return alert("Please enter the context or school's message.");
     setIsGenerating(true);
@@ -132,7 +139,7 @@ Happy to send over a 1-pager showing exactly how this data architecture works if
   };
 
   const filteredScripts = scripts.filter((s) => {
-    if (filterEngine !== 'all' && s.engine.toString() !== filterEngine) return false;
+    if (filterEngine !== 'all' && s.engine?.toString() !== filterEngine) return false;
     if (filterPC1 !== 'all' && s.pc1 !== filterPC1) return false;
     if (filterType !== 'all' && s.message_type !== filterType) return false;
     return true;
@@ -140,20 +147,53 @@ Happy to send over a 1-pager showing exactly how this data architecture works if
 
   return (
     <div className="space-y-6 pb-10">
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center">
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-800 flex items-center tracking-tight">
             <BookOpen className="w-6 h-6 mr-2 text-indigo-600" /> Contextual Persuasion Engine
           </h2>
-          <p className="text-slate-500 text-sm mt-1 font-medium">
-            Dynamic conversational intelligence, objection handlers, and strategic scripts.
+          <p className="text-slate-500 text-sm mt-1 font-medium flex items-center">
+            <Zap className="w-4 h-4 mr-1 text-emerald-500" /> Live Synced with Agent Vault
           </p>
         </div>
         <div className="flex space-x-3">
+          <button onClick={() => setIsImportModalOpen(true)} className="bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-50 transition flex items-center shadow-sm">
+            <Upload className="w-4 h-4 mr-1.5" /> Import Data
+          </button>
           <button onClick={() => openScriptModal()} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 transition flex items-center shadow-md">
             <Plus className="w-4 h-4 mr-1.5" /> New Script Target
           </button>
         </div>
+      </div>
+
+      {/* FILTER BAR */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center">
+        <div className="flex items-center text-sm font-bold text-slate-500 uppercase tracking-widest"><Filter className="w-4 h-4 mr-2" /> Filters:</div>
+        <select value={filterEngine} onChange={(e) => setFilterEngine(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold outline-none text-slate-700">
+          <option value="all">Any Engine</option>
+          <option value="1">Engine 1 (Execution)</option>
+          <option value="2">Engine 2 (Nurture)</option>
+        </select>
+        <select value={filterPC1} onChange={(e) => setFilterPC1(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold outline-none text-slate-700">
+          <option value="all">Any Tier</option>
+          <option value="Any">Global (Any)</option>
+          <option value="Elite/Professional">Elite/Professional</option>
+          <option value="Middle-Income">Middle-Income</option>
+          <option value="Mass-Market">Mass-Market</option>
+        </select>
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold outline-none text-slate-700">
+          <option value="all">Any Type</option>
+          <option value="Opening">Opening</option>
+          <option value="Insight Drop">Insight Drop</option>
+          <option value="Gap Identification">Gap Identification</option>
+          <option value="Objection Handler">Objection Handler</option>
+          <option value="Rebuttal">Rebuttal</option>
+          <option value="FAQ Response">FAQ Response</option>
+          <option value="Demo Transition">Demo Transition</option>
+          <option value="Closing">Closing</option>
+          <option value="Recovery">Recovery</option>
+          <option value="Re-Engagement">Re-Engagement</option>
+        </select>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -342,11 +382,10 @@ Happy to send over a 1-pager showing exactly how this data architecture works if
               
             </form>
 
-            {/* --- FIXED DELETE & SAVE BUTTON LAYOUT --- */}
             <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-between items-center shrink-0">
               <div>
                 {editingScript.id && (
-                  <button type="button" onClick={() => { handleDelete(editingScript.id); setIsScriptModalOpen(false); }} className="text-red-500 font-bold px-4 py-2 hover:bg-red-50 rounded-xl flex items-center transition">
+                  <button type="button" onClick={() => handleDelete(editingScript.id)} className="text-red-500 font-bold px-4 py-2 hover:bg-red-50 rounded-xl flex items-center transition">
                     <Trash2 className="w-4 h-4 mr-2" /> Delete Script
                   </button>
                 )}
@@ -361,6 +400,34 @@ Happy to send over a 1-pager showing exactly how this data architecture works if
               </div>
             </div>
             
+          </div>
+        </div>
+      )}
+
+      {/* IMPORT JSON MODAL */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl border border-slate-200">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-lg font-black text-slate-800 flex items-center">
+                <Upload className="w-5 h-5 mr-2 text-indigo-600" /> Import Scripts via JSON
+              </h3>
+              <button onClick={() => setIsImportModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="h-5 w-5" /></button>
+            </div>
+            <form onSubmit={handleImport} className="p-6 space-y-4">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Paste your structured JSON array below:</p>
+              <textarea
+                required
+                value={importJsonText}
+                onChange={(e) => setImportJsonText(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl p-4 min-h-[250px] text-sm font-mono bg-slate-50 outline-none focus:border-indigo-500"
+                placeholder='[{"message_type": "Objection", "content": "..."}]'
+              />
+              <div className="flex justify-end pt-2 gap-3">
+                <button type="button" onClick={() => setIsImportModalOpen(false)} className="px-5 py-2.5 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                <button type="submit" className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-black uppercase tracking-widest hover:bg-indigo-700 shadow-md">Run Import</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
