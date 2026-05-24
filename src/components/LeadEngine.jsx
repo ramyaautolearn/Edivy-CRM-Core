@@ -1,19 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Search, Plus, MapPin, User, Star, ShieldCheck, Edit, Trash2, X, Zap, Users, Target, Flame, Download, UploadCloud, RefreshCw
+  Search, Plus, MapPin, User, Star, ShieldCheck, Edit, Trash2, X, Zap, Users, Target, Flame, Download, UploadCloud, RefreshCw, Filter, FilterX, AlertCircle, CheckCircle, XCircle, Unlock
 } from 'lucide-react';
 import {
-  collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch
+  collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch, arrayUnion
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export default function LeadEngine() {
+export default function LeadEngine({ user }) {
   const [leads, setLeads] = useState([]);
   const [agents, setAgents] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  
+  // Filtering States
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterEngine, setFilterEngine] = useState('all');
+  const [filterStage, setFilterStage] = useState('all');
+  const [filterOwner, setFilterOwner] = useState('all');
+
   const [editingId, setEditingId] = useState(null);
   const fileInputRef = useRef(null);
   
@@ -29,7 +35,7 @@ export default function LeadEngine() {
   const [pc1, setPc1] = useState('Middle-Income');
   const [pc2, setPc2] = useState('No System');
   const [pc3, setPc3] = useState('Marks-Only');
-  const [engineTarget, setEngineTarget] = useState(1); // NEW: Manual Engine Control
+  const [engineTarget, setEngineTarget] = useState(1);
 
   useEffect(() => {
     if (!db) return;
@@ -43,7 +49,7 @@ export default function LeadEngine() {
     );
 
     const unsubAgents = onSnapshot(
-      collection(db, 'artifacts', appId, 'public', 'data', 'users'),
+      collection(db, 'users'), // Fetching from global users for real names
       (snap) => {
         const allUsers = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         setAgents(allUsers.filter((u) => u.role === 'staff' || u.role === 'admin'));
@@ -67,13 +73,18 @@ export default function LeadEngine() {
     return score;
   };
 
+  const getAgentName = (agentId) => {
+    if (!agentId) return 'Unassigned';
+    const agent = agents.find(a => a.id === agentId || a.email === agentId);
+    return agent ? (agent.name || agent.email) : agentId.substring(0,8);
+  };
+
   const handleAddOrEditLead = async (e) => {
     e.preventDefault();
     if (!db) return;
 
     setIsAdding(true);
     const score = calculateEdivyScore(pc1, pc2, pc3, contactRole);
-    // Use the manually selected engine target from the form!
     const engine = Number(engineTarget);
 
     const leadData = {
@@ -88,7 +99,6 @@ export default function LeadEngine() {
       pc3,
       score,
       engine,
-      // Only set stage name if creating new, otherwise preserve their current stage in that engine
       ...( !editingId && { stage_name: engine === 1 ? 'New Lead' : 'Awakening (Entry)' } ),
       last_activity_at: serverTimestamp(),
     };
@@ -113,23 +123,57 @@ export default function LeadEngine() {
     }
   };
 
-  // --- MANUAL ADMIN CONTROLS (TABLE SWAPS) ---
+  // --- MANUAL ADMIN CONTROLS (ROUTING & APPROVALS) ---
   const handleAssign = async (leadId, agentId) => {
     if (!db) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { assigned_to: agentId || null });
+    // Overriding assignment manually clears any pending requests
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { 
+        assigned_to: agentId || null,
+        transfer_requested_by: null,
+        transfer_reason: null,
+        logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin manually routed lead to ${getAgentName(agentId)}.`, agent: user?.name || 'Admin' })
+    });
+  };
+
+  const handleRevokeClaim = async (leadId) => {
+    if (!window.confirm("Revoke claim and dump this lead back into the Unassigned Bank?")) return;
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { 
+        assigned_to: null,
+        transfer_requested_by: null,
+        transfer_reason: null,
+        logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin revoked claim. Lead returned to Shark Tank.`, agent: user?.name || 'Admin' })
+    });
+  };
+
+  const handleApproveTransfer = async (lead) => {
+    if (!window.confirm(`Approve transfer to ${getAgentName(lead.transfer_requested_by)}?`)) return;
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', lead.id), { 
+        assigned_to: lead.transfer_requested_by,
+        transfer_requested_by: null,
+        transfer_reason: null,
+        logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin Approved Transfer to ${getAgentName(lead.transfer_requested_by)}.`, agent: user?.name || 'Admin' })
+    });
+  };
+
+  const handleDenyTransfer = async (lead) => {
+    if (!window.confirm(`Deny transfer request?`)) return;
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', lead.id), { 
+        transfer_requested_by: null,
+        transfer_reason: null,
+        logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin Denied Transfer Request from ${getAgentName(lead.transfer_requested_by)}.`, agent: user?.name || 'Admin' })
+    });
   };
 
   const handleEngineChange = async (leadId, newEngineValue) => {
     if (!db) return;
     const engineNum = Number(newEngineValue);
-    
-    // Automatically reset their stage to the starting line of whichever engine they are dropped into
     const initialStage = engineNum === 1 ? 'New Lead' : 'Awakening (Entry)';
     
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { 
       engine: engineNum,
       stage_name: initialStage,
-      last_activity_at: serverTimestamp()
+      last_activity_at: serverTimestamp(),
+      logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin forcefully moved lead to Engine ${engineNum}.`, agent: user?.name || 'Admin' })
     });
   };
 
@@ -253,7 +297,26 @@ export default function LeadEngine() {
     }
   };
 
-  const filteredLeads = leads.filter((l) => (l.school_name || '').toLowerCase().includes(searchTerm.toLowerCase()));
+  // --- FILTERING ENGINE ---
+  const uniqueStages = [...new Set(leads.map(l => l.stage_name).filter(Boolean))];
+  
+  const filteredLeads = leads.filter((l) => {
+      if (searchTerm && !(l.school_name || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
+      if (filterEngine !== 'all' && l.engine?.toString() !== filterEngine) return false;
+      if (filterStage !== 'all' && l.stage_name !== filterStage) return false;
+      if (filterOwner === 'unassigned' && l.assigned_to) return false;
+      if (filterOwner !== 'all' && filterOwner !== 'unassigned' && l.assigned_to !== filterOwner) return false;
+      return true;
+  });
+
+  const clearFilters = () => {
+      setSearchTerm('');
+      setFilterEngine('all');
+      setFilterStage('all');
+      setFilterOwner('all');
+  };
+
+  const isFilterActive = filterEngine !== 'all' || filterStage !== 'all' || filterOwner !== 'all';
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-12">
@@ -289,11 +352,42 @@ export default function LeadEngine() {
         <MetricCard icon={<RefreshCw />} label="Resting in E2 (Nurture)" value={leads.filter(l => l.engine === 2).length} color="emerald" />
       </div>
 
-      {/* Main Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center">
-          <Search className="w-5 h-5 mr-3 text-slate-400" />
-          <input type="text" placeholder="Search school name..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent outline-none text-sm font-bold w-full" />
+      {/* Main Table with Admin Filters */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+        
+        {/* Filter Bar */}
+        <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col xl:flex-row gap-4 items-start xl:items-center justify-between">
+          <div className="flex items-center w-full xl:w-auto bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+            <Search className="w-4 h-4 mr-2 text-slate-400 shrink-0" />
+            <input type="text" placeholder="Search school name..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent outline-none text-xs font-bold w-full min-w-[200px]" />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <div className="flex items-center text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1"><Filter className="w-3.5 h-3.5 mr-1" /> Filters:</div>
+            
+            <select value={filterEngine} onChange={(e) => setFilterEngine(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold outline-none text-slate-700 bg-white cursor-pointer uppercase tracking-widest">
+              <option value="all">Any Engine</option>
+              <option value="1">Engine 1 (Sales)</option>
+              <option value="2">Engine 2 (Nurture)</option>
+            </select>
+
+            <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold outline-none text-slate-700 bg-white cursor-pointer uppercase tracking-widest">
+              <option value="all">Any Stage</option>
+              {uniqueStages.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+
+            <select value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold outline-none text-slate-700 bg-white cursor-pointer uppercase tracking-widest">
+              <option value="all">Any Owner</option>
+              <option value="unassigned">Unassigned Only</option>
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name || a.email}</option>)}
+            </select>
+
+            {isFilterActive && (
+              <button onClick={clearFilters} className="bg-red-50 text-red-600 hover:bg-red-100 p-2 rounded-lg flex items-center justify-center transition-colors border border-red-100" title="Clear Filters">
+                  <FilterX className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -303,7 +397,7 @@ export default function LeadEngine() {
                 <th className="p-4 pl-6">School & Contact</th>
                 <th className="p-4">Intelligence Profile</th>
                 <th className="p-4">Engine Routing</th>
-                <th className="p-4">Lead Owner (Assign)</th>
+                <th className="p-4 w-[350px]">Lead Owner & Status</th>
                 <th className="p-4 text-right pr-6">Actions</th>
               </tr>
             </thead>
@@ -328,10 +422,9 @@ export default function LeadEngine() {
                   </td>
                   <td className="p-4">
                     <div className="flex flex-col gap-2">
-                      <div className="flex items-center text-yellow-500 font-black text-sm">
+                      <div className="flex items-center text-amber-500 font-black text-sm">
                         <Star className="w-4 h-4 mr-1 fill-current" /> {lead.score} / 100
                       </div>
-                      {/* MANUAL ENGINE TOGGLE IN TABLE */}
                       <select
                         value={lead.engine || 1}
                         onChange={(e) => handleEngineChange(lead.id, e.target.value)}
@@ -342,24 +435,62 @@ export default function LeadEngine() {
                       </select>
                     </div>
                   </td>
+                  
+                  {/* LEAD OWNER & STATUS (ADMIN GOD MODE) */}
                   <td className="p-4">
-                    <div className="flex items-center">
-                      <ShieldCheck className={`w-4 h-4 mr-2 ${lead.assigned_to ? 'text-emerald-500' : 'text-slate-200'}`} />
-                      <select
-                        value={lead.assigned_to || ''}
-                        onChange={(e) => handleAssign(lead.id, e.target.value)}
-                        className={`text-[10px] font-black border rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 uppercase tracking-widest cursor-pointer ${lead.assigned_to ? 'bg-white border-slate-200 text-slate-700' : 'bg-red-50 border-red-100 text-red-500'}`}
-                      >
-                        <option value="">⚠️ Unassigned</option>
-                        {agents.map((agent) => (
-                          <option key={agent.id} value={agent.id}>{agent.name} ({agent.role})</option>
-                        ))}
-                      </select>
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center flex-1 bg-white border border-slate-200 rounded-lg pr-2 shadow-sm overflow-hidden">
+                                <div className={`px-3 py-2 border-r border-slate-200 ${lead.assigned_to ? 'bg-emerald-50 text-emerald-500' : 'bg-slate-50 text-slate-400'}`}>
+                                    <ShieldCheck className="w-4 h-4" />
+                                </div>
+                                <select
+                                    value={lead.assigned_to || ''}
+                                    onChange={(e) => handleAssign(lead.id, e.target.value)}
+                                    className={`text-[10px] font-black w-full px-2 py-2 outline-none uppercase tracking-widest cursor-pointer ${lead.assigned_to ? 'text-slate-700' : 'text-slate-400'}`}
+                                >
+                                    <option value="">Unassigned</option>
+                                    {agents.map((agent) => (
+                                    <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            
+                            {/* Revoke Button */}
+                            {lead.assigned_to && (
+                                <button onClick={() => handleRevokeClaim(lead.id)} title="Revoke Claim" className="p-2 bg-red-50 text-red-500 border border-red-100 hover:bg-red-500 hover:text-white rounded-lg transition-colors shadow-sm shrink-0">
+                                    <Unlock className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Transfer Request Alert */}
+                        {lead.transfer_requested_by && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 shadow-sm">
+                                <div className="flex items-start mb-2">
+                                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 mr-1.5 mt-0.5 shrink-0" />
+                                    <div>
+                                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-800">Transfer Request</p>
+                                        <p className="text-xs font-bold text-amber-900 mt-0.5">By: {getAgentName(lead.transfer_requested_by)}</p>
+                                        <p className="text-[10px] font-medium text-amber-700 italic mt-0.5">"{lead.transfer_reason}"</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleApproveTransfer(lead)} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest py-1.5 rounded transition-colors flex items-center justify-center shadow-sm">
+                                        <CheckCircle className="w-3 h-3 mr-1" /> Approve
+                                    </button>
+                                    <button onClick={() => handleDenyTransfer(lead)} className="flex-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-500 text-[9px] font-black uppercase tracking-widest py-1.5 rounded transition-colors flex items-center justify-center shadow-sm">
+                                        <XCircle className="w-3 h-3 mr-1" /> Deny
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                   </td>
+
                   <td className="p-4 pr-6 text-right space-x-2">
-                    <button onClick={() => openEditModal(lead)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-lg transition-colors"><Edit className="w-4 h-4" /></button>
-                    <button onClick={() => handleDeleteLead(lead.id)} className="p-2 text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => openEditModal(lead)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 border border-slate-100 hover:border-indigo-100 rounded-lg transition-all shadow-sm"><Edit className="w-4 h-4" /></button>
+                    <button onClick={() => handleDeleteLead(lead.id)} className="p-2 text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 border border-slate-100 hover:border-red-100 rounded-lg transition-all shadow-sm"><Trash2 className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}
@@ -423,7 +554,6 @@ export default function LeadEngine() {
                   <ParameterSelect label="PC2: Tech" value={pc2} setter={setPc2} options={['No System', 'Manual WhatsApp', 'Clunky ERP', 'Premium Portal']} />
                   <ParameterSelect label="PC3: Vision" value={pc3} setter={setPc3} options={['Marks-Only', 'Holistic/Life-Skills', 'Tech-Forward']} />
                   
-                  {/* MANUAL ENGINE SELECTOR IN MODAL */}
                   <div className="flex flex-col border-l border-indigo-200 pl-4">
                     <label className="text-[10px] font-black text-indigo-500 uppercase mb-2 ml-1 tracking-widest">Pipeline Target</label>
                     <select value={engineTarget} onChange={(e) => setEngineTarget(e.target.value)} className="w-full px-3 py-2.5 bg-indigo-600 text-white border border-indigo-700 rounded-xl text-xs font-bold outline-none cursor-pointer">
