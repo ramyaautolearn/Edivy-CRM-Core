@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Search, Plus, MapPin, User, Star, ShieldCheck, Edit, Trash2, X, Zap, Users, Target, Flame, Download, UploadCloud, RefreshCw, Filter, FilterX, AlertCircle, CheckCircle, XCircle, Unlock, ArrowUpDown, CheckSquare, Square, Inbox
+  Search, Plus, MapPin, User, Star, ShieldCheck, Edit, Trash2, X, Zap, Users, Target, Flame, Download, UploadCloud, RefreshCw, Filter, FilterX, AlertCircle, CheckCircle, XCircle, Unlock, ArrowUpDown, CheckSquare, Square, Inbox, Snowflake
 } from 'lucide-react';
 import {
   collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch, arrayUnion
@@ -51,9 +51,10 @@ export default function LeadEngine({ user }) {
       }
     );
 
+    // FIX 3: Removed the role filter so ALL registered users show up
     const unsubAgents = onSnapshot(collection(db, 'users'), (snap) => {
       const allUsers = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setAgents(allUsers.filter((u) => u.role === 'staff' || u.role === 'admin'));
+      setAgents(allUsers);
     });
 
     return () => { unsubLeads(); unsubAgents(); };
@@ -164,7 +165,8 @@ export default function LeadEngine({ user }) {
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { 
       engine: engineNum,
       stage_name: initialStage,
-      last_activity_at: serverTimestamp()
+      last_activity_at: serverTimestamp(),
+      logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin forcefully moved lead to Engine ${engineNum}.`, agent: user?.name || 'Admin' })
     });
   };
 
@@ -201,9 +203,13 @@ export default function LeadEngine({ user }) {
       setSelectedLeads([]);
   };
 
-  const toggleSelectAll = (e) => {
-      if (e.target.checked) setSelectedLeads(processedLeads.map(l => l.id));
-      else setSelectedLeads([]);
+  // FIX 2: Bulletproof Select All Logic for Icon Buttons
+  const toggleSelectAll = () => {
+      if (selectedLeads.length === processedLeads.length && processedLeads.length > 0) {
+          setSelectedLeads([]); // Deselect all
+      } else {
+          setSelectedLeads(processedLeads.map(l => l.id)); // Select all
+      }
   };
 
   const toggleSelectLead = (id) => {
@@ -232,7 +238,7 @@ export default function LeadEngine({ user }) {
       if (filterOwner === 'unassigned_all') { if (l.assigned_to) return false; }
       else if (filterOwner === 'unassigned_fresh') { if (l.assigned_to || l.is_recycled) return false; }
       else if (filterOwner === 'unassigned_recycled') { if (l.assigned_to || !l.is_recycled) return false; }
-      else if (filterOwner !== 'all' && l.assigned_to !== filterOwner) return false;
+      else if (filterOwner !== 'all' && filterOwner !== 'unassigned_all' && filterOwner !== 'unassigned_fresh' && filterOwner !== 'unassigned_recycled' && l.assigned_to !== filterOwner) return false;
       
       return true;
   });
@@ -250,7 +256,7 @@ export default function LeadEngine({ user }) {
 
   const isFilterActive = filterEngine !== 'all' || filterStage !== 'all' || filterOwner !== 'all';
 
-  // Modal / CSV Controls...
+  // Modal / CSV Controls
   const openNewModal = () => {
     setEditingId(null); setSchoolName(''); setLocation(''); setContactName(''); setContactRole('Principal');
     setPhone(''); setEmail(''); setPc1('Middle-Income'); setPc2('No System'); setPc3('Marks-Only'); setEngineTarget(1);
@@ -264,13 +270,96 @@ export default function LeadEngine({ user }) {
     setShowModal(true);
   };
   const closeModal = () => { setEditingId(null); setShowModal(false); };
+  
   const handleDeleteLead = async (id) => {
     if (window.confirm('Permanently delete this lead?')) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', id));
   };
   
-  // CSV Import/Export implementation (kept intact from previous)
-  const handleExportCSV = () => { /* Export Logic */ };
-  const handleImportCSV = async (e) => { /* Import Logic */ };
+  // CSV Import/Export implementation
+  const handleExportCSV = () => {
+    const headers = ['School Name', 'Location', 'Contact Name', 'Role', 'Phone', 'Email', 'Tier', 'Tech', 'Vision', 'Score', 'Engine'];
+    const csvContent = [
+      headers.join(','),
+      ...leads.map(l => [
+        `"${l.school_name || ''}"`, `"${l.location || ''}"`, `"${l.contact_name || ''}"`, `"${l.contact_role || ''}"`,
+        `"${l.phone || ''}"`, `"${l.email || ''}"`, `"${l.pc1 || ''}"`, `"${l.pc2 || ''}"`, `"${l.pc3 || ''}"`,
+        l.score, l.engine
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `edivy_leads_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
+  const handleImportCSV = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const rows = text.split('\n').map(row => row.split(',').map(cell => cell.replace(/^"|"$/g, '').trim()));
+        const headers = rows[0].map(h => h.toLowerCase());
+        
+        const batch = writeBatch(db);
+        const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leads');
+        let count = 0;
+
+        for (let i = 1; i < rows.length; i++) {
+          if (rows[i].length < 2 || !rows[i][0]) continue; 
+          
+          const rowData = {};
+          headers.forEach((header, index) => { rowData[header] = rows[i][index]; });
+
+          const score = calculateEdivyScore(
+            rowData['tier'] || 'Middle-Income', 
+            rowData['tech'] || 'No System', 
+            rowData['vision'] || 'Marks-Only', 
+            rowData['role'] || 'Principal'
+          );
+          
+          const engine = score >= 70 ? 1 : 2;
+
+          const newLeadRef = doc(leadsRef);
+          batch.set(newLeadRef, {
+            school_name: rowData['school name'] || 'Unknown School',
+            location: rowData['location'] || '',
+            contact_name: rowData['contact name'] || '',
+            contact_role: rowData['role'] || 'Principal',
+            phone: rowData['phone'] || '',
+            email: rowData['email'] || '',
+            pc1: rowData['tier'] || 'Middle-Income',
+            pc2: rowData['tech'] || 'No System',
+            pc3: rowData['vision'] || 'Marks-Only',
+            score: score,
+            engine: engine,
+            stage_name: engine === 1 ? 'New Lead' : 'Awakening (Entry)',
+            temperature: 'Cold',
+            assigned_to: null,
+            createdAt: serverTimestamp(),
+            last_activity_at: serverTimestamp()
+          });
+          count++;
+        }
+
+        await batch.commit();
+        alert(`Successfully imported ${count} leads!`);
+      } catch (error) {
+        console.error("Import error:", error);
+        alert("Failed to import CSV. Check format.");
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-24 relative">
@@ -293,7 +382,7 @@ export default function LeadEngine({ user }) {
         </div>
       </div>
 
-      {/* NEW: PENDING APPROVALS INBOX */}
+      {/* PENDING APPROVALS INBOX */}
       {pendingApprovals.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 shadow-sm">
              <div className="flex items-center mb-4">
@@ -371,7 +460,6 @@ export default function LeadEngine({ user }) {
         {/* SCROLLABLE TABLE CONTAINER */}
         <div className="overflow-x-auto overflow-y-auto max-h-[60vh] relative">
           <table className="w-full text-left border-collapse min-w-[1100px]">
-            {/* STICKY HEADER */}
             <thead className="sticky top-0 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] z-10">
               <tr className="border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400 font-black">
                 <th className="p-4 pl-6 w-10">
@@ -386,7 +474,7 @@ export default function LeadEngine({ user }) {
                 <th className="p-4 cursor-pointer hover:text-slate-700 group" onClick={() => handleSort('score')}>
                     Routing & Score <ArrowUpDown className="w-3 h-3 inline ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </th>
-                <th className="p-4 w-[300px]">Lead Owner & Status</th>
+                <th className="p-4 w-[280px]">Lead Owner & Status</th>
                 <th className="p-4 text-right pr-6">Actions</th>
               </tr>
             </thead>
@@ -401,7 +489,6 @@ export default function LeadEngine({ user }) {
                   <td className="p-4">
                     <div className="font-black text-slate-800 text-sm flex items-center">
                         {lead.school_name}
-                        {/* FRESH / RECYCLED BADGING */}
                         {!lead.assigned_to && !lead.is_recycled && <span className="ml-2 bg-emerald-100 text-emerald-700 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest">✨ Fresh</span>}
                         {!lead.assigned_to && lead.is_recycled && <span className="ml-2 bg-amber-100 text-amber-700 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest">♻️ Recycled</span>}
                     </div>
@@ -434,28 +521,27 @@ export default function LeadEngine({ user }) {
                     </div>
                   </td>
                   
+                  {/* FIX 4: Restored 1-Click Assignment Dropdown */}
                   <td className="p-4">
-                    <div className="flex items-center gap-2">
-                        <div className="flex items-center flex-1 bg-white border border-slate-200 rounded-lg pr-2 shadow-sm overflow-hidden">
-                            <div className={`px-3 py-2 border-r border-slate-200 ${lead.assigned_to ? 'bg-emerald-50 text-emerald-500' : 'bg-slate-50 text-slate-400'}`}>
-                                <ShieldCheck className="w-4 h-4" />
-                            </div>
-                            <select
-                                value={lead.assigned_to || ''}
-                                onChange={(e) => handleAssign(lead.id, e.target.value)}
-                                className={`text-[10px] font-black w-full px-2 py-2 outline-none uppercase tracking-widest cursor-pointer ${lead.assigned_to ? 'text-slate-700' : 'text-slate-400'}`}
-                            >
-                                <option value="">Unassigned Bank</option>
-                                {agents.map((agent) => (
-                                <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>
-                                ))}
-                            </select>
-                        </div>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center">
+                        <ShieldCheck className={`w-4 h-4 mr-2 shrink-0 ${lead.assigned_to ? 'text-emerald-500' : 'text-slate-200'}`} />
+                        <select
+                          value={lead.assigned_to || ''}
+                          onChange={(e) => handleAssign(lead.id, e.target.value)}
+                          className={`text-[10px] font-black border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 uppercase tracking-widest cursor-pointer w-full max-w-[180px] truncate ${lead.assigned_to ? 'bg-white border-slate-200 text-slate-700' : 'bg-red-50 border-red-100 text-red-500'}`}
+                        >
+                          <option value="">⚠️ Unassigned</option>
+                          {agents.map((agent) => (
+                            <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>
+                          ))}
+                        </select>
                         {lead.assigned_to && (
-                            <button onClick={() => handleRevokeClaim(lead.id)} title="Revoke Claim & Return to Bank" className="p-2 bg-white hover:bg-red-50 text-slate-300 border border-slate-200 hover:border-red-200 hover:text-red-500 rounded-lg transition-colors shadow-sm shrink-0">
-                                <Unlock className="w-4 h-4" />
-                            </button>
+                          <button onClick={() => handleRevokeClaim(lead.id)} title="Revoke Claim" className="ml-2 p-1.5 bg-white hover:bg-red-50 text-slate-400 hover:border-red-200 hover:text-red-500 rounded-lg transition-colors shadow-sm shrink-0">
+                              <Unlock className="w-3.5 h-3.5" />
+                          </button>
                         )}
+                      </div>
                     </div>
                   </td>
 
@@ -479,13 +565,11 @@ export default function LeadEngine({ user }) {
               </div>
               <div className="w-px h-8 bg-slate-700"></div>
               <div className="flex items-center gap-3">
-                  {/* Bulk Assign */}
                   <select onChange={(e) => handleBulkAssign(e.target.value)} className="bg-slate-800 text-white border border-slate-700 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer">
                       <option value="">Bulk Assign To...</option>
                       <option value="unassigned">Dump to Unassigned Bank</option>
                       {agents.map(a => <option key={a.id} value={a.id}>{a.name || a.email}</option>)}
                   </select>
-                  {/* Bulk Route */}
                   <button onClick={() => handleBulkEngine(1)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center">
                       <Zap className="w-3.5 h-3.5 mr-1.5" /> Route E1
                   </button>
@@ -499,7 +583,7 @@ export default function LeadEngine({ user }) {
           </div>
       )}
 
-      {/* Add / Edit Modal (Hidden for brevity, but remains functionally identical to your provided code) */}
+      {/* Add / Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl my-8">
@@ -508,7 +592,6 @@ export default function LeadEngine({ user }) {
               <button onClick={closeModal} className="text-slate-400 hover:text-slate-700 bg-white rounded-full p-1.5 shadow-sm border border-slate-200"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleAddOrEditLead} className="p-6 space-y-5">
-               {/* Modal Content identical to your structure */}
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">School Name</label>
@@ -574,32 +657,13 @@ export default function LeadEngine({ user }) {
                   </div>
                 </div>
               </div>
-              <button type="submit" disabled={isAdding} className="w-full bg-slate-900 text-white font-black py-4 rounded-xl shadow-md disabled:opacity-70 mt-4 uppercase tracking-widest text-xs hover:bg-slate-800 transition-all">
+              <button type="submit" disabled={isAdding} className="w-full bg-slate-900 text-white font-black py-4 rounded-xl shadow-md disabled:opacity-70 mt-4 uppercase tracking-widest text-xs hover:bg-slate-800 transition-all flex items-center justify-center">
                 {isAdding ? 'Processing...' : editingId ? 'Update Target & Reroute' : 'Acquire Target & Route'}
               </button>
             </form>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function MetricCard({ label, value, icon, color }) {
-  const colorMap = {
-    indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100', 
-    blue: 'bg-blue-50 text-blue-600 border-blue-100',
-    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-  };
-  return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-200 flex items-center shadow-sm">
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center mr-4 border ${colorMap[color] || colorMap.blue}`}>
-        {React.cloneElement(icon, { size: 24 })}
-      </div>
-      <div>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
-        <h3 className="text-2xl font-black text-slate-900 tracking-tight mt-1">{value}</h3>
-      </div>
     </div>
   );
 }
