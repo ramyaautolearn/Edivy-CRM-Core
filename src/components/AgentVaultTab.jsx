@@ -13,7 +13,7 @@ export default function AgentVaultTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterTier, setFilterTier] = useState('all');
-  const [filterEngine, setFilterEngine] = useState('all'); // NEW: Engine Filter
+  const [filterEngine, setFilterEngine] = useState('all');
   
   // UX State
   const [copiedId, setCopiedId] = useState(null);
@@ -33,7 +33,7 @@ export default function AgentVaultTab() {
   const handleCopy = (id, content) => {
     navigator.clipboard.writeText(content).then(() => {
       setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000); // Reset after 2 seconds
+      setTimeout(() => setCopiedId(null), 2000); 
     });
   };
 
@@ -44,10 +44,8 @@ export default function AgentVaultTab() {
     setFilterEngine('all');
   };
 
-  // Extract unique types dynamically
   const uniqueTypes = [...new Set(scripts.map(s => s.message_type).filter(Boolean))];
 
-  // Filtering Engine
   const displayedScripts = scripts.filter(script => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -162,7 +160,6 @@ export default function AgentVaultTab() {
               const isCopied = copiedId === script.id;
               const isGlobal = script.pc1 === 'Any';
               
-              // Determine Badge Color dynamically based on keyword
               let badgeColor = "bg-slate-100 text-slate-600 border-slate-200";
               const typeLower = (script.message_type || '').toLowerCase();
               if (typeLower.includes('objection')) badgeColor = "bg-red-50 text-red-700 border-red-200";
@@ -176,24 +173,26 @@ export default function AgentVaultTab() {
                   {/* Engine Indicator Bar */}
                   <div className={`absolute top-0 left-0 w-1.5 h-full ${script.engine === 1 ? 'bg-indigo-500' : 'bg-blue-400'}`}></div>
 
-                  {/* Card Header */}
-                  <div className="pl-6 pr-5 py-4 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-                    <div className="flex flex-col gap-2">
-                       <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border w-max ${badgeColor}`}>
-                         {script.message_type || 'Uncategorized'}
-                       </span>
-                       <span className={`text-[9px] font-black uppercase tracking-widest w-max ${script.engine === 1 ? 'text-indigo-500' : 'text-blue-500'}`}>
-                         Engine {script.engine} Script
-                       </span>
+                  {/* BUG FIX: Card Header Layout (Flex-wrap added to prevent clipping) */}
+                  <div className="pl-6 pr-5 py-4 border-b border-slate-100 bg-slate-50/50">
+                    <div className="flex flex-wrap justify-between items-start gap-2">
+                        <div className="flex flex-wrap gap-2 min-w-0">
+                           <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border w-max truncate max-w-full ${badgeColor}`} title={script.message_type || 'Uncategorized'}>
+                             {script.message_type || 'Uncategorized'}
+                           </span>
+                           <span className={`text-[9px] font-black uppercase tracking-widest w-max flex items-center ${script.engine === 1 ? 'text-indigo-500' : 'text-blue-500'}`}>
+                             Engine {script.engine} Script
+                           </span>
+                        </div>
+                        {isGlobal && (
+                          <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest flex items-center bg-amber-50 px-2 py-1 rounded-md border border-amber-200 shrink-0">
+                            <Star className="w-3 h-3 mr-1 fill-current" /> Global
+                          </span>
+                        )}
                     </div>
-                    {isGlobal && (
-                      <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest flex items-center bg-amber-50 px-2 py-1 rounded-md border border-amber-200">
-                        <Star className="w-3 h-3 mr-1 fill-current" /> Global
-                      </span>
-                    )}
                   </div>
                   
-                  {/* Card Body (The Script) */}
+                  {/* Card Body */}
                   <div className="pl-6 pr-5 py-5 flex-1 bg-white relative">
                     <MessageSquare className="w-8 h-8 absolute top-4 right-4 text-slate-100 z-0" />
                     <div className="text-sm font-medium text-slate-700 whitespace-pre-wrap leading-relaxed relative z-10">
@@ -201,20 +200,18 @@ export default function AgentVaultTab() {
                     </div>
                   </div>
                   
-                  {/* Card Footer (Deep Tags & Actions) */}
+                  {/* Card Footer */}
                   <div className="pl-6 pr-5 py-4 border-t border-slate-100 bg-slate-50 flex flex-col gap-4 mt-auto">
                     
-                    {/* Deep Persona Tags */}
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest flex items-center"><Target className="w-3 h-3 mr-1" /> Target Profile</span>
                       <div className="flex flex-wrap gap-2 text-[9px] font-bold text-slate-600">
-                        <span className="bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">Tier: {script.pc1 || 'Any'}</span>
-                        {script.pc2 && script.pc2 !== 'Any' && <span className="bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">Tech: {script.pc2}</span>}
-                        {script.pc3 && script.pc3 !== 'Any' && <span className="bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">Vision: {script.pc3}</span>}
+                        <span className="bg-white px-2 py-1 rounded border border-slate-200 shadow-sm truncate max-w-full">Tier: {script.pc1 || 'Any'}</span>
+                        {script.pc2 && script.pc2 !== 'Any' && <span className="bg-white px-2 py-1 rounded border border-slate-200 shadow-sm truncate max-w-full">Tech: {script.pc2}</span>}
+                        {script.pc3 && script.pc3 !== 'Any' && <span className="bg-white px-2 py-1 rounded border border-slate-200 shadow-sm truncate max-w-full">Vision: {script.pc3}</span>}
                       </div>
                     </div>
                     
-                    {/* Action Buttons */}
                     <div className="flex gap-2 w-full pt-2 border-t border-slate-200 border-dashed">
                         {script.media_url && (
                           <button 
