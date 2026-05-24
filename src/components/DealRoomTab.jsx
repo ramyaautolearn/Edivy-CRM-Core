@@ -229,32 +229,21 @@ export default function DealRoomTab({ user, initialLeadId }) {
       });
   }
 
-  // --- BULLETPROOF NAME RESOLVER ---
   const activeAssignedIds = [...new Set(leads.map(l => l.assigned_to).filter(Boolean))];
   const crmUserIds = crmUsers.map(u => u.id);
   const rawColleagueIds = [...new Set([...activeAssignedIds, ...crmUserIds])];
   const colleagueIds = rawColleagueIds.filter(id => id !== user?.id && id !== user?.email && id !== user?.name);
 
   const dropdownUsers = colleagueIds.map(id => {
-      // Check if this ID matches a real user's ID, UID, or Email in your DB
       const crmU = crmUsers.find(u => u.id === id || u.uid === id || u.email === id);
-      
       let displayName = `Agent: ${id.substring(0, 6)}...`;
-      
       if (crmU) {
-          // Check every possible way you might be storing the name
-          displayName = crmU.full_name || 
-                        crmU.legal_name || 
-                        crmU.name || 
-                        (crmU.first_name ? `${crmU.first_name} ${crmU.last_name || ''}`.trim() : null) || 
-                        crmU.email || 
-                        displayName;
+          displayName = crmU.full_name || crmU.legal_name || crmU.name || (crmU.first_name ? `${crmU.first_name} ${crmU.last_name || ''}`.trim() : null) || crmU.email || displayName;
       } else if (id.includes('@')) {
           displayName = id.split('@')[0];
       } else if (id.toLowerCase() === 'staff') {
           displayName = 'Staff';
       }
-      
       return { id, display: displayName };
   });
 
@@ -319,21 +308,56 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return isEstimated ? `Est: ${dateString}` : `Due: ${dateString}`;
   };
 
-  const handleOpenWhatsApp = (customScript = null) => {
+  // --- BUG FIX: BULLETPROOF WHATSAPP FIRING ---
+  const handleOpenWhatsApp = async (customScript = null) => {
     if (!selectedLead || isLockedDown) return;
-    let textToCopy = customScript || '';
+    
+    let textToCopy = typeof customScript === 'string' ? customScript : '';
     
     if (!textToCopy && activeTask && activeTask.override_script) {
         textToCopy = activeTask.override_script;
     }
     
+    // 1. Sanitize the phone number (Strip spaces, brackets, + symbols to ensure wa.me works)
+    const rawPhone = selectedLead.phone || '';
+    const cleanPhone = rawPhone.replace(/\D/g, ''); 
+
     if (textToCopy) {
-      textToCopy = textToCopy.replace(/{contact_name}/g, selectedLead.contact_name || '');
-      navigator.clipboard.writeText(textToCopy).catch(e => console.log("Clipboard error:", e));
-      window.open(`https://wa.me/${selectedLead.phone}`, '_blank');
+      textToCopy = textToCopy.replace(/{contact_name}/g, selectedLead.contact_name || 'there');
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+      } catch (err) {
+        console.warn("Clipboard failed, but opening WhatsApp anyway", err);
+      }
+      window.open(`https://wa.me/${cleanPhone}`, '_blank');
     } else {
       alert("⚠️ Script Required: This task does not have a manual script configured. Please write manually in WhatsApp.");
-      window.open(`https://wa.me/${selectedLead.phone}`, '_blank');
+      window.open(`https://wa.me/${cleanPhone}`, '_blank');
+    }
+  };
+
+  // --- BUG FIX: VAULT PIVOT & SEND ---
+  const handleVaultWhatsApp = async (scriptContent, scriptName) => {
+    // 1. Open WhatsApp & copy script immediately
+    await handleOpenWhatsApp(scriptContent);
+    
+    // 2. Visually close the vault immediately so the user knows it worked
+    setShowVault(false);
+    
+    // 3. Log the pivot silently to Firebase
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
+        logs: arrayUnion({ 
+          id: Date.now().toString(), 
+          date: new Date().toISOString(), 
+          type: 'WhatsApp', // Logged as WhatsApp so it gets the nice green icon
+          text: `Tactical Pivot: Used Vault Script [${scriptName}]`, 
+          agent: user?.name || 'Agent' 
+        }),
+        last_activity_at: serverTimestamp()
+      });
+    } catch (e) {
+      console.error("Failed to log pivot", e);
     }
   };
 
