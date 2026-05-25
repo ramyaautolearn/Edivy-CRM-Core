@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, Users, Calendar, Filter, Clock, 
-  MessageCircle, Phone, Video, FileText, Zap, Shield
+  MessageCircle, Phone, Video, FileText, Zap, Shield, RefreshCw
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -33,12 +33,29 @@ export default function AgentAnalytics() {
     return () => { unsubAgents(); unsubLeads(); };
   }, []);
 
+  // ==========================================
+  // BULLETPROOF DATE PARSER
+  // ==========================================
+  const getSafeDateObj = (dateVal) => {
+    if (!dateVal) return null;
+    // If it's a Firebase Timestamp Object
+    if (typeof dateVal === 'object' && dateVal.seconds) {
+      return new Date(dateVal.seconds * 1000);
+    }
+    // If it's a standard String
+    if (typeof dateVal === 'string') {
+      return new Date(dateVal);
+    }
+    return null;
+  };
+
   // --- REPORT GENERATION ENGINE ---
   const generateReport = () => {
     const report = {};
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
     
+    // Create safe comparison strings for today and yesterday
+    const todayStr = now.toISOString().split('T')[0];
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
@@ -47,13 +64,17 @@ export default function AgentAnalytics() {
       if (!lead.logs || !Array.isArray(lead.logs)) return;
 
       lead.logs.forEach(log => {
-        // Apply Time Filter
-        const logDateStr = log.date.split('T')[0];
+        // Safely parse the log date
+        const logDateObj = getSafeDateObj(log.date);
+        if (!logDateObj || isNaN(logDateObj)) return; // Skip broken logs safely
+
+        const logDateStr = logDateObj.toISOString().split('T')[0];
         
+        // Apply Time Filters
         if (timeFilter === 'today' && logDateStr !== todayStr) return;
         if (timeFilter === 'yesterday' && logDateStr !== yesterdayStr) return;
         if (timeFilter === 'week') {
-            const logTime = new Date(log.date).getTime();
+            const logTime = logDateObj.getTime();
             const weekAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
             if (logTime < weekAgo) return;
         }
@@ -70,7 +91,7 @@ export default function AgentAnalytics() {
             note: 0,
             system: 0,
             total: 0,
-            lastActive: log.date
+            lastActiveObj: logDateObj 
           };
         }
 
@@ -84,8 +105,8 @@ export default function AgentAnalytics() {
         report[agentName].total++;
 
         // Calculate Last Active Timestamp
-        if (new Date(log.date) > new Date(report[agentName].lastActive)) {
-          report[agentName].lastActive = log.date;
+        if (logDateObj > report[agentName].lastActiveObj) {
+          report[agentName].lastActiveObj = logDateObj;
         }
       });
     });
@@ -112,7 +133,7 @@ export default function AgentAnalytics() {
   }), { whatsapp: 0, call: 0, meeting: 0, system: 0, total: 0 });
 
   if (loading) {
-    return <div className="p-20 flex justify-center"><RefreshCw className="w-8 h-8 animate-spin text-indigo-500" /></div>;
+    return <div className="p-20 flex flex-col items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-indigo-500 mb-4" /><p className="text-sm font-bold text-slate-400">Loading Timesheets...</p></div>;
   }
 
   return (
@@ -194,12 +215,14 @@ export default function AgentAnalytics() {
                 activityData.map((agent) => {
                   const badge = getBadgeForAgent(agent.name);
                   
-                  // Calculate time ago for last active
-                  const lastActiveDate = new Date(agent.lastActive);
-                  const minsAgo = Math.floor((new Date() - lastActiveDate) / 60000);
+                  // Safe Date Math
+                  const now = new Date();
+                  const minsAgo = Math.floor((now - agent.lastActiveObj) / 60000);
                   let timeAgoStr = `${minsAgo}m ago`;
-                  if (minsAgo > 60) timeAgoStr = `${Math.floor(minsAgo/60)}h ${minsAgo%60}m ago`;
-                  if (minsAgo > 1440) timeAgoStr = lastActiveDate.toLocaleDateString();
+                  
+                  if (minsAgo < 1) timeAgoStr = 'Just Now';
+                  else if (minsAgo > 60 && minsAgo < 1440) timeAgoStr = `${Math.floor(minsAgo/60)}h ${minsAgo%60}m ago`;
+                  else if (minsAgo >= 1440) timeAgoStr = agent.lastActiveObj.toLocaleDateString();
 
                   return (
                     <tr key={agent.name} className="hover:bg-slate-50 transition-colors">
@@ -237,7 +260,7 @@ export default function AgentAnalytics() {
                         <div className="flex items-center justify-end text-[10px] font-black text-slate-500 uppercase tracking-widest">
                           <Clock className="w-3 h-3 mr-1.5" />
                           <span className={minsAgo < 15 ? 'text-emerald-500' : ''}>
-                            {minsAgo < 15 ? 'Active Now' : timeAgoStr}
+                            {timeAgoStr}
                           </span>
                         </div>
                       </td>
