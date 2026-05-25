@@ -77,23 +77,12 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   useEffect(() => { setExpandedTaskId(0); setUnlockedTasks([]); setShowVault(false); }, [selectedLeadId]);
 
-
-  // ==========================================
-  // BUG FIX 1: THE DATE TRAP PARSER
-  // ==========================================
   const safeDateStr = (dateVal) => {
     if (!dateVal) return '';
-    // If it's a Firebase Timestamp Object
-    if (typeof dateVal === 'object' && dateVal.seconds) {
-      return new Date(dateVal.seconds * 1000).toISOString().split('T')[0];
-    }
-    // If it's already a String
-    if (typeof dateVal === 'string') {
-      return dateVal.split('T')[0];
-    }
+    if (typeof dateVal === 'object' && dateVal.seconds) return new Date(dateVal.seconds * 1000).toISOString().split('T')[0];
+    if (typeof dateVal === 'string') return dateVal.split('T')[0];
     return '';
   };
-
 
   // --- LEAD OWNERSHIP ACTIONS ---
   const handleClaimLead = async (leadId) => {
@@ -221,28 +210,77 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
 
   // ==========================================
-  // BUG FIX 2: THE OWNER TRAP & ACTION QUEUE
+  // BUG FIX: DYNAMIC ACTION QUEUE CALCULATION
   // ==========================================
+  const isLeadActionableToday = (lead) => {
+      // 1. Is there an explicit Manual Save-Point set for today or earlier?
+      const manualDate = safeDateStr(lead.next_follow_up);
+      if (manualDate && manualDate <= today) return true;
+
+      // 2. Is it a high-priority system status?
+      if (lead.engine === 1 && lead.stage_name === 'New Lead') return true;
+      if (lead.temperature === 'Hot') return true;
+
+      // 3. The Smart Pipeline Reader: Let's calculate the real-time task due dates!
+      if (!e1Pipeline || !e1Pipeline.stages) return false;
+      const stage = e1Pipeline.stages.find(s => s.name === lead.stage_name);
+      if (!stage) return false;
+
+      const stageTasks = (e1Pipeline.tasks || []).filter(t => t.stage_id === stage.id).sort((a,b) => a.order - b.order);
+      if (stageTasks.length === 0) return false;
+
+      const completed = lead.completed_tasks || [];
+      let firstUncompletedIdx = -1;
+      
+      // Find the first task the agent hasn't done yet
+      for (let i = 0; i < stageTasks.length; i++) {
+          if (!completed.includes(`${stage.name}::${stageTasks[i].name}`)) {
+              firstUncompletedIdx = i;
+              break;
+          }
+      }
+
+      if (firstUncompletedIdx === -1) return false; // All tasks done in this stage!
+
+      // Figure out when this specific uncompleted task is due
+      const activeTask = stageTasks[firstUncompletedIdx];
+      let baseDate = null;
+
+      if (firstUncompletedIdx === 0) {
+          // If it's the very first task, calculate time from when they entered the stage
+          const stageLog = [...(lead.logs || [])].reverse().find(l => l.text.includes(`Jumped to Pipeline Stage`));
+          baseDate = stageLog ? new Date(stageLog.date) : new Date();
+      } else {
+          // Calculate time from when they completed the previous task
+          const prevTaskName = stageTasks[firstUncompletedIdx - 1].name;
+          const prevLog = [...(lead.logs || [])].reverse().find(l => l.text.includes(`Completed Task: ${prevTaskName}`));
+          baseDate = prevLog ? new Date(prevLog.date) : new Date();
+      }
+
+      let delayMs = 0;
+      if (activeTask.delay_value) {
+          if (activeTask.delay_unit === 'minutes') delayMs = activeTask.delay_value * 60000;
+          if (activeTask.delay_unit === 'hours') delayMs = activeTask.delay_value * 3600000;
+          if (activeTask.delay_unit === 'days') delayMs = activeTask.delay_value * 86400000;
+      }
+
+      const exactDueDate = new Date(baseDate.getTime() + delayMs);
+      const dueStr = exactDueDate.toISOString().split('T')[0];
+
+      // If the calculated task date is today or in the past, it belongs in the Action Queue!
+      return dueStr <= today;
+  };
+
   const myLeads = leads.filter(l => {
       if (!l.assigned_to || !user) return false;
       const assignedLower = String(l.assigned_to).toLowerCase();
       const userIdLower = String(user.id || '').toLowerCase();
       const userEmailLower = String(user.email || '').toLowerCase();
-      
-      // Robust cross-reference to ensure no leads are missed
       return assignedLower === userIdLower || assignedLower === userEmailLower;
   });
 
-  const actionQueueLeads = myLeads.filter(l => {
-      const isNew = l.engine === 1 && l.stage_name === 'New Lead';
-      const isHot = l.temperature === 'Hot';
-      
-      // Safely parse date and see if it's due today or overdue
-      const parsedDate = safeDateStr(l.next_follow_up);
-      const isDue = parsedDate !== '' && parsedDate <= today;
-      
-      return isNew || isHot || isDue;
-  });
+  // Action Queue now uses the super-smart Dynamic Reader
+  const actionQueueLeads = myLeads.filter(l => isLeadActionableToday(l));
 
   const demoLeads = myLeads.filter(l => l.is_demo_booked);
   
@@ -270,9 +308,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
               if (lStage !== filterStage) return false;
           }
 
-          // Apply Safe Date Parsing to Bank Filters
           const lDateStr = safeDateStr(l.next_follow_up);
-          
           if (filterDateType === 'today') { if (lDateStr !== today) return false; }
           else if (filterDateType === 'overdue') { if (!lDateStr || lDateStr >= today) return false; }
           else if (filterDateType === 'custom') { if (!filterCustomDate || lDateStr !== filterCustomDate) return false; }
@@ -286,18 +322,12 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const rawColleagueIds = [...new Set([...activeAssignedIds, ...crmUserIds])];
   const colleagueIds = rawColleagueIds.filter(id => id !== user?.id && id !== user?.email && id !== user?.name);
 
-  // ==========================================
-  // BUG FIX 3: THE BADGE ID ALIAS FIX
-  // ==========================================
   const dropdownUsers = colleagueIds.map(id => {
       const crmU = crmUsers.find(u => u.id === id || u.uid === id || u.email === id);
       let displayName = `Agent: ${id.substring(0, 6)}...`;
       
       if (crmU) {
-          // Get their base name
           let baseName = crmU.full_name || crmU.legal_name || crmU.name || (crmU.first_name ? `${crmU.first_name} ${crmU.last_name || ''}`.trim() : null) || crmU.email || displayName;
-          
-          // Inject Badge ID if it exists (e.g., [AGT-001] Jane Smith)
           displayName = crmU.badge_id ? `[${crmU.badge_id}] ${baseName}` : baseName;
       } else if (id.includes('@')) {
           displayName = id.split('@')[0];
@@ -309,7 +339,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
-  // Safely check lock status
   const isSelectedMine = selectedLead && (String(selectedLead.assigned_to).toLowerCase() === String(user?.id || '').toLowerCase() || String(selectedLead.assigned_to).toLowerCase() === String(user?.email || '').toLowerCase() || user?.role === 'admin');
   const isSelectedUnassigned = selectedLead && !selectedLead.assigned_to;
   const isSelectedColleague = selectedLead && !isSelectedMine && !isSelectedUnassigned;
