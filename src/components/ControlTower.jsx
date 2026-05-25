@@ -55,18 +55,29 @@ export default function ControlTower() {
       const agentStats = {};
       const tierStats = {};
 
+      // ==========================================
+      // BULLETPROOF DATE HELPER
+      // ==========================================
+      const getSafeDateObj = (dateVal) => {
+        if (!dateVal) return new Date(); // Fallback to now if missing
+        if (typeof dateVal === 'object' && dateVal.seconds) {
+          return new Date(dateVal.seconds * 1000);
+        }
+        if (typeof dateVal === 'string') {
+          const parsed = new Date(dateVal);
+          if (!isNaN(parsed.getTime())) return parsed;
+        }
+        return new Date(); // Fallback to now if corrupted
+      };
+
       leads.forEach(lead => {
-        // 1. Time Flow & Speed
-        let leadDateObj = new Date();
-        if (lead.createdAt?.seconds) leadDateObj = new Date(lead.createdAt.seconds * 1000);
-        else if (typeof lead.createdAt === 'string') leadDateObj = new Date(lead.createdAt);
+        // 1. Time Flow & Speed (Using Safe Date Parser)
+        const leadDateObj = getSafeDateObj(lead.createdAt);
         
         if (leadDateObj.toISOString().split('T')[0] === todayStr) newToday++;
         if (leadDateObj >= weekAgo) newWeek++;
 
-        let lastActObj = leadDateObj;
-        if (lead.last_activity_at?.seconds) lastActObj = new Date(lead.last_activity_at.seconds * 1000);
-        else if (typeof lead.last_activity_at === 'string') lastActObj = new Date(lead.last_activity_at);
+        const lastActObj = getSafeDateObj(lead.last_activity_at || lead.createdAt);
 
         if (lastActObj > leadDateObj) {
             const diffTime = Math.abs(lastActObj - leadDateObj);
@@ -140,7 +151,8 @@ export default function ControlTower() {
           leadFlow: { today: newToday, week: newWeek, assigned: assignedCount, e1: e1Count, e2: e2Count },
           conversion: { 
              overall: leads.length > 0 ? Math.round((demosBooked / leads.length) * 100) + '%' : '0%',
-             closedWon: leads.length > 0 ? Math.round((closedWonCount / leads.length) * 100) + '%' : '0%'
+             closedWon: leads.length > 0 ? Math.round((closedWonCount / leads.length) * 100) + '%' : '0%',
+             hotRatio: e1Count > 0 ? Math.round((hotLeads / e1Count) * 100) + '%' : '0%'
           },
           speed: {
              dealCycle: avgDealCycle
@@ -327,7 +339,7 @@ export default function ControlTower() {
           </div>
         </div>
 
-        {/* B. Conversion Metrics (RESTORED) */}
+        {/* B. Conversion Metrics */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">
             B. Target Acquisition & Conversion
@@ -351,7 +363,7 @@ export default function ControlTower() {
           </p>
         </div>
 
-        {/* E. Execution Speed (RESTORED) */}
+        {/* E. Execution Speed */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">
             E. Execution Speed
@@ -375,7 +387,7 @@ export default function ControlTower() {
           </p>
         </div>
 
-        {/* D. Nurture Effectiveness (RESTORED) */}
+        {/* D. Nurture Effectiveness */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">
             D. Nurture Effectiveness (E2)
