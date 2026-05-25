@@ -38,9 +38,14 @@ export default function DealRoomTab({ user, initialLeadId }) {
     if (!db || !user?.id) return;
 
     // Fetch Global Users Directory
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+    const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
         if (!snap.empty) {
             setCrmUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } else {
+             // Fallback to root users if nested structure is empty
+             onSnapshot(collection(db, 'users'), (rootSnap) => {
+                 if (!rootSnap.empty) setCrmUsers(rootSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+             });
         }
     });
 
@@ -71,6 +76,24 @@ export default function DealRoomTab({ user, initialLeadId }) {
   }, [user]);
 
   useEffect(() => { setExpandedTaskId(0); setUnlockedTasks([]); setShowVault(false); }, [selectedLeadId]);
+
+
+  // ==========================================
+  // BUG FIX 1: THE DATE TRAP PARSER
+  // ==========================================
+  const safeDateStr = (dateVal) => {
+    if (!dateVal) return '';
+    // If it's a Firebase Timestamp Object
+    if (typeof dateVal === 'object' && dateVal.seconds) {
+      return new Date(dateVal.seconds * 1000).toISOString().split('T')[0];
+    }
+    // If it's already a String
+    if (typeof dateVal === 'string') {
+      return dateVal.split('T')[0];
+    }
+    return '';
+  };
+
 
   // --- LEAD OWNERSHIP ACTIONS ---
   const handleClaimLead = async (leadId) => {
@@ -196,9 +219,31 @@ export default function DealRoomTab({ user, initialLeadId }) {
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { temperature: selectedLead.temperature === 'Hot' ? 'Warm' : 'Hot', last_activity_at: serverTimestamp() });
   };
 
-  // --- FILTERING LOGIC ---
-  const myLeads = leads.filter(l => l.assigned_to === user?.id || l.assigned_to === user?.email);
-  const actionQueueLeads = myLeads.filter(l => (l.engine === 1 && l.stage_name === 'New Lead') || l.temperature === 'Hot' || (l.next_follow_up && l.next_follow_up <= today));
+
+  // ==========================================
+  // BUG FIX 2: THE OWNER TRAP & ACTION QUEUE
+  // ==========================================
+  const myLeads = leads.filter(l => {
+      if (!l.assigned_to || !user) return false;
+      const assignedLower = String(l.assigned_to).toLowerCase();
+      const userIdLower = String(user.id || '').toLowerCase();
+      const userEmailLower = String(user.email || '').toLowerCase();
+      
+      // Robust cross-reference to ensure no leads are missed
+      return assignedLower === userIdLower || assignedLower === userEmailLower;
+  });
+
+  const actionQueueLeads = myLeads.filter(l => {
+      const isNew = l.engine === 1 && l.stage_name === 'New Lead';
+      const isHot = l.temperature === 'Hot';
+      
+      // Safely parse date and see if it's due today or overdue
+      const parsedDate = safeDateStr(l.next_follow_up);
+      const isDue = parsedDate !== '' && parsedDate <= today;
+      
+      return isNew || isHot || isDue;
+  });
+
   const demoLeads = myLeads.filter(l => l.is_demo_booked);
   
   let displayedLeads = [];
@@ -214,16 +259,23 @@ export default function DealRoomTab({ user, initialLeadId }) {
               if (!matchName && !matchContact && !matchPhone) return false;
           }
           if (filterOwner === 'unassigned') { if (l.assigned_to) return false; }
-          else if (filterOwner === 'me') { if (l.assigned_to !== user?.id && l.assigned_to !== user?.email) return false; }
+          else if (filterOwner === 'me') { 
+              const aTo = String(l.assigned_to || '').toLowerCase();
+              if (aTo !== String(user?.id || '').toLowerCase() && aTo !== String(user?.email || '').toLowerCase()) return false; 
+          }
           else if (filterOwner !== 'all') { if (l.assigned_to !== filterOwner) return false; }
           
           if (filterStage !== 'all') {
               const lStage = l.stage_name || 'New Lead';
               if (lStage !== filterStage) return false;
           }
-          if (filterDateType === 'today') { if (l.next_follow_up !== today) return false; }
-          else if (filterDateType === 'overdue') { if (!l.next_follow_up || l.next_follow_up >= today) return false; }
-          else if (filterDateType === 'custom') { if (!filterCustomDate || l.next_follow_up !== filterCustomDate) return false; }
+
+          // Apply Safe Date Parsing to Bank Filters
+          const lDateStr = safeDateStr(l.next_follow_up);
+          
+          if (filterDateType === 'today') { if (lDateStr !== today) return false; }
+          else if (filterDateType === 'overdue') { if (!lDateStr || lDateStr >= today) return false; }
+          else if (filterDateType === 'custom') { if (!filterCustomDate || lDateStr !== filterCustomDate) return false; }
           
           return true;
       });
@@ -234,11 +286,19 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const rawColleagueIds = [...new Set([...activeAssignedIds, ...crmUserIds])];
   const colleagueIds = rawColleagueIds.filter(id => id !== user?.id && id !== user?.email && id !== user?.name);
 
+  // ==========================================
+  // BUG FIX 3: THE BADGE ID ALIAS FIX
+  // ==========================================
   const dropdownUsers = colleagueIds.map(id => {
       const crmU = crmUsers.find(u => u.id === id || u.uid === id || u.email === id);
       let displayName = `Agent: ${id.substring(0, 6)}...`;
+      
       if (crmU) {
-          displayName = crmU.full_name || crmU.legal_name || crmU.name || (crmU.first_name ? `${crmU.first_name} ${crmU.last_name || ''}`.trim() : null) || crmU.email || displayName;
+          // Get their base name
+          let baseName = crmU.full_name || crmU.legal_name || crmU.name || (crmU.first_name ? `${crmU.first_name} ${crmU.last_name || ''}`.trim() : null) || crmU.email || displayName;
+          
+          // Inject Badge ID if it exists (e.g., [AGT-001] Jane Smith)
+          displayName = crmU.badge_id ? `[${crmU.badge_id}] ${baseName}` : baseName;
       } else if (id.includes('@')) {
           displayName = id.split('@')[0];
       } else if (id.toLowerCase() === 'staff') {
@@ -249,7 +309,8 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
-  const isSelectedMine = selectedLead?.assigned_to === user?.id || selectedLead?.assigned_to === user?.email || user?.role === 'admin';
+  // Safely check lock status
+  const isSelectedMine = selectedLead && (String(selectedLead.assigned_to).toLowerCase() === String(user?.id || '').toLowerCase() || String(selectedLead.assigned_to).toLowerCase() === String(user?.email || '').toLowerCase() || user?.role === 'admin');
   const isSelectedUnassigned = selectedLead && !selectedLead.assigned_to;
   const isSelectedColleague = selectedLead && !isSelectedMine && !isSelectedUnassigned;
   const isLockedDown = !isSelectedMine;
@@ -308,7 +369,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return isEstimated ? `Est: ${dateString}` : `Due: ${dateString}`;
   };
 
-  // --- BUG FIX: BULLETPROOF WHATSAPP FIRING ---
   const handleOpenWhatsApp = async (customScript = null) => {
     if (!selectedLead || isLockedDown) return;
     
@@ -318,7 +378,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
         textToCopy = activeTask.override_script;
     }
     
-    // 1. Sanitize the phone number (Strip spaces, brackets, + symbols to ensure wa.me works)
     const rawPhone = selectedLead.phone || '';
     const cleanPhone = rawPhone.replace(/\D/g, ''); 
 
@@ -336,21 +395,15 @@ export default function DealRoomTab({ user, initialLeadId }) {
     }
   };
 
-  // --- BUG FIX: VAULT PIVOT & SEND ---
   const handleVaultWhatsApp = async (scriptContent, scriptName) => {
-    // 1. Open WhatsApp & copy script immediately
     await handleOpenWhatsApp(scriptContent);
-    
-    // 2. Visually close the vault immediately so the user knows it worked
     setShowVault(false);
-    
-    // 3. Log the pivot silently to Firebase
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
         logs: arrayUnion({ 
           id: Date.now().toString(), 
           date: new Date().toISOString(), 
-          type: 'WhatsApp', // Logged as WhatsApp so it gets the nice green icon
+          type: 'WhatsApp',
           text: `Tactical Pivot: Used Vault Script [${scriptName}]`, 
           agent: user?.name || 'Agent' 
         }),
@@ -421,16 +474,19 @@ export default function DealRoomTab({ user, initialLeadId }) {
         )}
 
         <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50/50">
-          {loading ? <div className="p-12 text-center"><RefreshCw className="w-6 h-6 animate-spin mx-auto text-slate-300" /></div> : displayedLeads.length === 0 ? <div className="p-16 text-center text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em] leading-relaxed"><Filter className="w-8 h-8 mx-auto mb-3 opacity-20" /> No Matches</div> : displayedLeads.map((l) => (
+          {loading ? <div className="p-12 text-center"><RefreshCw className="w-6 h-6 animate-spin mx-auto text-slate-300" /></div> : displayedLeads.length === 0 ? <div className="p-16 text-center text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em] leading-relaxed"><Filter className="w-8 h-8 mx-auto mb-3 opacity-20" /> No Matches</div> : displayedLeads.map((l) => {
+              const safeListDate = safeDateStr(l.next_follow_up);
+              
+              return (
               <div key={l.id} onClick={() => setSelectedLeadId(l.id)} className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all relative overflow-hidden ${ selectedLeadId === l.id ? 'bg-indigo-50 border-indigo-500 shadow-sm' : 'bg-white border-slate-100 hover:border-indigo-200' }`}>
                 {l.assigned_to && l.assigned_to !== user?.id && l.assigned_to !== user?.email && <div className="absolute top-0 left-0 w-1 h-full bg-amber-400"></div>}
                 {!l.assigned_to && <div className="absolute top-0 left-0 w-1 h-full bg-emerald-400"></div>}
 
                 <div className="flex justify-between items-start mb-2"><h4 className="font-bold text-sm tracking-tight text-slate-900 leading-tight pr-2 truncate">{l.school_name}</h4>{l.temperature === 'Hot' && <Flame className="w-4 h-4 text-orange-500 fill-current shrink-0" />}</div>
-                {l.next_follow_up && <div className={`text-[9px] font-black uppercase tracking-widest mb-2 flex items-center w-max px-2 py-0.5 rounded border ${l.next_follow_up < today ? 'bg-red-50 text-red-600 border-red-200' : l.next_follow_up === today ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}><Calendar className="w-3 h-3 mr-1" /> Due: {l.next_follow_up}</div>}
+                {safeListDate && <div className={`text-[9px] font-black uppercase tracking-widest mb-2 flex items-center w-max px-2 py-0.5 rounded border ${safeListDate < today ? 'bg-red-50 text-red-600 border-red-200' : safeListDate === today ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}><Calendar className="w-3 h-3 mr-1" /> Due: {safeListDate}</div>}
                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100/50"><span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest truncate max-w-[120px] ${selectedLeadId === l.id ? 'bg-white text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{l.stage_name || 'New Lead'}</span><div className="text-[10px] font-black flex items-center text-indigo-600"><Star className="w-3 h-3 mr-1 fill-current" /> {l.score}</div></div>
               </div>
-          ))}
+          )})}
         </div>
       </aside>
 
@@ -440,8 +496,9 @@ export default function DealRoomTab({ user, initialLeadId }) {
         ) : (
           <div className="flex flex-col h-full w-full animate-in fade-in duration-300">
             
-            {selectedLead.next_follow_up && selectedLead.next_follow_up <= today && (
-              <div className={`px-6 py-2.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-center shrink-0 shadow-sm z-20 ${selectedLead.next_follow_up < today ? 'bg-red-500 text-white' : 'bg-amber-400 text-amber-950'}`}><Clock className="w-4 h-4 mr-2" /> {selectedLead.next_follow_up < today ? `🚨 OVERDUE ACTION (Was due ${selectedLead.next_follow_up})` : '⚡ ACTION REQUIRED TODAY'}</div>
+            {/* Render Safely Extracted Date */}
+            {safeDateStr(selectedLead.next_follow_up) && safeDateStr(selectedLead.next_follow_up) <= today && (
+              <div className={`px-6 py-2.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-center shrink-0 shadow-sm z-20 ${safeDateStr(selectedLead.next_follow_up) < today ? 'bg-red-500 text-white' : 'bg-amber-400 text-amber-950'}`}><Clock className="w-4 h-4 mr-2" /> {safeDateStr(selectedLead.next_follow_up) < today ? `🚨 OVERDUE ACTION (Was due ${safeDateStr(selectedLead.next_follow_up)})` : '⚡ ACTION REQUIRED TODAY'}</div>
             )}
 
             {isSelectedUnassigned && (
@@ -617,8 +674,8 @@ export default function DealRoomTab({ user, initialLeadId }) {
                       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-6 items-center justify-between">
                         <div className="flex-1"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><Calendar className="w-3 h-3 mr-1" /> Tactical Save-Point (Follow-Up)</h4><p className="text-xs font-medium text-slate-500">Set a date here to push this lead to the top of your Action Queue on the chosen day.</p></div>
                         <div className="flex flex-col w-full sm:w-auto items-center sm:items-end">
-                          <input type="date" value={selectedLead.next_follow_up || ''} disabled={isLockedDown} onChange={(e) => handleSetFollowUp(e.target.value)} className="w-full sm:w-[200px] bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:border-indigo-400 cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed" />
-                          {selectedLead.next_follow_up && !isLockedDown && <button onClick={() => handleSetFollowUp(null)} className="mt-2 text-[10px] font-black text-slate-400 hover:text-red-500 uppercase tracking-widest transition-colors">Clear Save-Point</button>}
+                          <input type="date" value={safeDateStr(selectedLead.next_follow_up)} disabled={isLockedDown} onChange={(e) => handleSetFollowUp(e.target.value)} className="w-full sm:w-[200px] bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:border-indigo-400 cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed" />
+                          {safeDateStr(selectedLead.next_follow_up) && !isLockedDown && <button onClick={() => handleSetFollowUp(null)} className="mt-2 text-[10px] font-black text-slate-400 hover:text-red-500 uppercase tracking-widest transition-colors">Clear Save-Point</button>}
                         </div>
                       </div>
 
