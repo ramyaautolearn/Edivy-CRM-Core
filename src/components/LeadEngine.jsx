@@ -70,10 +70,14 @@ export default function LeadEngine({ user }) {
     return score;
   };
 
+  // BADGE FIX 1: Update the helper function to display badges in logs and the pending inbox
   const getAgentName = (agentId) => {
     if (!agentId) return 'Unassigned';
     const agent = agents.find(a => a.id === agentId || a.email === agentId);
-    return agent ? (agent.name || agent.email) : agentId.substring(0,8);
+    if (agent) {
+       return agent.badge_id ? `[${agent.badge_id}] ${agent.name}` : (agent.name || agent.email);
+    }
+    return agentId.substring(0,8);
   };
 
   // --- ADD / EDIT LOGIC ---
@@ -447,7 +451,12 @@ export default function LeadEngine({ user }) {
               <option value="unassigned_all">All Unassigned</option>
               <option value="unassigned_fresh">✨ Fresh Unassigned</option>
               <option value="unassigned_recycled">♻️ Recycled Unassigned</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.name || a.email}</option>)}
+              
+              {/* BADGE FIX 2: Filter Dropdown */}
+              {agents.map(a => {
+                  const displayName = a.badge_id ? `[${a.badge_id}] ${a.name}` : (a.name || a.email);
+                  return <option key={a.id} value={a.id}>{displayName}</option>;
+              })}
             </select>
             {isFilterActive && (
               <button onClick={clearFilters} className="bg-red-50 text-red-600 hover:bg-red-100 p-2 rounded-lg flex items-center justify-center transition-colors border border-red-100" title="Clear Filters">
@@ -521,7 +530,7 @@ export default function LeadEngine({ user }) {
                     </div>
                   </td>
                   
-                  {/* FIX 4: Restored 1-Click Assignment Dropdown */}
+                  {/* BADGE FIX 3: 1-Click Assignment Dropdown */}
                   <td className="p-4">
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center">
@@ -532,9 +541,10 @@ export default function LeadEngine({ user }) {
                           className={`text-[10px] font-black border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 uppercase tracking-widest cursor-pointer w-full max-w-[180px] truncate ${lead.assigned_to ? 'bg-white border-slate-200 text-slate-700' : 'bg-red-50 border-red-100 text-red-500'}`}
                         >
                           <option value="">⚠️ Unassigned</option>
-                          {agents.map((agent) => (
-                            <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>
-                          ))}
+                          {agents.map((agent) => {
+                             const displayName = agent.badge_id ? `[${agent.badge_id}] ${agent.name}` : (agent.name || agent.email);
+                             return <option key={agent.id} value={agent.id}>{displayName}</option>;
+                          })}
                         </select>
                         {lead.assigned_to && (
                           <button onClick={() => handleRevokeClaim(lead.id)} title="Revoke Claim" className="ml-2 p-1.5 bg-white hover:bg-red-50 text-slate-400 hover:border-red-200 hover:text-red-500 rounded-lg transition-colors shadow-sm shrink-0">
@@ -565,10 +575,14 @@ export default function LeadEngine({ user }) {
               </div>
               <div className="w-px h-8 bg-slate-700"></div>
               <div className="flex items-center gap-3">
+                  {/* BADGE FIX 4: Bulk Action Dropdown */}
                   <select onChange={(e) => handleBulkAssign(e.target.value)} className="bg-slate-800 text-white border border-slate-700 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer">
                       <option value="">Bulk Assign To...</option>
                       <option value="unassigned">Dump to Unassigned Bank</option>
-                      {agents.map(a => <option key={a.id} value={a.id}>{a.name || a.email}</option>)}
+                      {agents.map(a => {
+                          const displayName = a.badge_id ? `[${a.badge_id}] ${a.name}` : (a.name || a.email);
+                          return <option key={a.id} value={a.id}>{displayName}</option>;
+                      })}
                   </select>
                   <button onClick={() => handleBulkEngine(1)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center">
                       <Zap className="w-3.5 h-3.5 mr-1.5" /> Route E1
