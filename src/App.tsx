@@ -10,6 +10,7 @@ import {
   Lock,
   LayoutDashboard,
   Users,
+  Activity, // <-- Added Activity Icon
 } from 'lucide-react';
 
 // ==========================================
@@ -22,6 +23,7 @@ import PipelineBuilder from './components/PipelineBuilder';
 import NurtureBuilder from './components/NurtureBuilder';
 import ScriptLibrary from './components/ScriptLibrary';
 import AdminAgents from './components/AdminAgents';
+import AgentAnalytics from './components/AgentAnalytics'; // <-- Added new Timesheet component
 
 // ==========================================
 // 2. YOUR REAL FIREBASE RECONNECTED!
@@ -186,6 +188,8 @@ export default function App() {
         return <ScriptLibrary />;
       case 'admin-agents':
         return <AdminAgents />;
+      case 'agent-analytics': // <-- Added Route for Analytics
+        return <AgentAnalytics />;
       default:
         return <ControlTower />;
     }
@@ -280,6 +284,14 @@ export default function App() {
                 icon={<UserCog />}
                 label="Agent Management"
                 id="admin-agents"
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+              />
+              {/* Added Activity & Timesheets Button */}
+              <SidebarItem
+                icon={<Activity />}
+                label="Activity & Timesheets"
+                id="agent-analytics"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
