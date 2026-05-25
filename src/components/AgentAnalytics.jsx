@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, Users, Calendar, Filter, Clock, 
-  MessageCircle, Phone, Video, FileText, Zap, Shield, RefreshCw
+  MessageCircle, Phone, Video, FileText, Zap, Shield, RefreshCw, Download
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -13,6 +13,7 @@ export default function AgentAnalytics() {
   
   // Date Filter State
   const [timeFilter, setTimeFilter] = useState('today');
+  const [filterCustomDate, setFilterCustomDate] = useState('');
 
   const appId = 'edivy-crm-vault';
 
@@ -38,11 +39,9 @@ export default function AgentAnalytics() {
   // ==========================================
   const getSafeDateObj = (dateVal) => {
     if (!dateVal) return null;
-    // If it's a Firebase Timestamp Object
     if (typeof dateVal === 'object' && dateVal.seconds) {
       return new Date(dateVal.seconds * 1000);
     }
-    // If it's a standard String
     if (typeof dateVal === 'string') {
       return new Date(dateVal);
     }
@@ -78,6 +77,7 @@ export default function AgentAnalytics() {
             const weekAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
             if (logTime < weekAgo) return;
         }
+        if (timeFilter === 'custom' && (!filterCustomDate || logDateStr !== filterCustomDate)) return;
 
         const agentName = log.agent || 'Unknown Agent';
 
@@ -129,8 +129,57 @@ export default function AgentAnalytics() {
     call: acc.call + curr.call,
     meeting: acc.meeting + curr.meeting,
     system: acc.system + curr.system,
+    note: acc.note + curr.note,
     total: acc.total + curr.total
-  }), { whatsapp: 0, call: 0, meeting: 0, system: 0, total: 0 });
+  }), { whatsapp: 0, call: 0, meeting: 0, system: 0, note: 0, total: 0 });
+
+
+  // --- CSV EXPORT LOGIC ---
+  const handleDownloadCSV = () => {
+    if (activityData.length === 0) {
+      alert("No data to export for this timeframe.");
+      return;
+    }
+
+    const headers = ['Agent Name', 'Total Actions', 'WhatsApp Messages', 'Phone Calls', 'Meetings', 'System Moves / Notes', 'Last Active Time'];
+    
+    const csvRows = activityData.map(agent => {
+      const badge = getBadgeForAgent(agent.name);
+      const displayName = badge ? `${badge} ${agent.name}` : agent.name;
+      return [
+        `"${displayName}"`,
+        agent.total,
+        agent.whatsapp,
+        agent.call,
+        agent.meeting,
+        `"${agent.system} / ${agent.note}"`,
+        `"${new Date(agent.lastActiveObj).toLocaleString()}"`
+      ];
+    });
+
+    // Append a Grand Totals row to the bottom of the Excel file
+    csvRows.push([
+      '"GRAND TOTALS"',
+      grandTotals.total,
+      grandTotals.whatsapp,
+      grandTotals.call,
+      grandTotals.meeting,
+      `"${grandTotals.system} / ${grandTotals.note}"`,
+      '""'
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...csvRows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Edivy_Timesheet_${timeFilter}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
 
   if (loading) {
     return <div className="p-20 flex flex-col items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-indigo-500 mb-4" /><p className="text-sm font-bold text-slate-400">Loading Timesheets...</p></div>;
@@ -139,8 +188,8 @@ export default function AgentAnalytics() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-7xl mx-auto pb-12">
       
-      {/* HEADER & FILTER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+      {/* HEADER & FILTERS */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div>
           <h2 className="text-2xl font-black text-slate-800 tracking-tight uppercase flex items-center">
             <Activity className="w-6 h-6 mr-3 text-indigo-600" /> Agent Timesheets & Activity
@@ -150,18 +199,40 @@ export default function AgentAnalytics() {
           </p>
         </div>
         
-        <div className="flex items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
-          <Calendar className="w-4 h-4 text-slate-400 mr-2 ml-2" />
-          <select 
-            value={timeFilter} 
-            onChange={(e) => setTimeFilter(e.target.value)}
-            className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer pr-4"
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+            <Calendar className="w-4 h-4 text-slate-400 mr-2 ml-2" />
+            <select 
+              value={timeFilter} 
+              onChange={(e) => {
+                setTimeFilter(e.target.value);
+                if (e.target.value !== 'custom') setFilterCustomDate('');
+              }}
+              className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer pr-4"
+            >
+              <option value="today">Today's Activity</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="week">Past 7 Days</option>
+              <option value="all">All Time</option>
+              <option value="custom">Specific Date...</option>
+            </select>
+          </div>
+
+          {timeFilter === 'custom' && (
+            <input 
+              type="date" 
+              value={filterCustomDate} 
+              onChange={(e) => setFilterCustomDate(e.target.value)} 
+              className="bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl px-4 py-2 text-sm font-bold outline-none cursor-pointer shadow-sm animate-in fade-in"
+            />
+          )}
+
+          <button 
+            onClick={handleDownloadCSV} 
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2.5 px-4 rounded-xl flex items-center shadow-sm text-xs uppercase tracking-widest transition-all"
           >
-            <option value="today">Today's Activity</option>
-            <option value="yesterday">Yesterday</option>
-            <option value="week">Past 7 Days</option>
-            <option value="all">All Time</option>
-          </select>
+            <Download className="w-4 h-4 mr-2 text-slate-400" /> Export CSV
+          </button>
         </div>
       </div>
 
