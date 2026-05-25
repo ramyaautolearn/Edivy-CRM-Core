@@ -52,7 +52,7 @@ export default function LeadEngine({ user }) {
     );
 
     // FIX 3: Removed the role filter so ALL registered users show up
-    const unsubAgents = onSnapshot(collection(db, 'users'), (snap) => {
+    const unsubAgents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
       const allUsers = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setAgents(allUsers);
     });
