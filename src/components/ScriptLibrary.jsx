@@ -134,7 +134,7 @@ export default function ScriptLibrary() {
     setIsGenerating(true);
     
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       
       const prompt = `
         You are an elite B2B SaaS sales copywriter for Edivy (a premium CRM and communication platform for schools).
