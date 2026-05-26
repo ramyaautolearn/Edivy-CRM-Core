@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import {
-  BookOpen, Plus, Filter, Upload, Edit, Trash2, Zap, X, Save,
-  Wand2, Paperclip, Loader2, MessageSquare, Lightbulb, CheckCircle2
+import { 
+  BookOpen, Plus, Filter, Upload, Edit, Trash2, Zap, X, 
+  Wand2, Paperclip, Loader2, MessageSquare, Lightbulb, CheckCircle2 
 } from 'lucide-react';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase'; // Ensure this path points to your firebase config
-import { GoogleGenerativeAI } from '@google/generative-ai'; // <-- ADDED GEMINI SDK
+import { db } from '../firebase'; 
+import OpenAI from 'openai'; // Groq uses the exact same package!
 
 export default function ScriptLibrary() {
   const [scripts, setScripts] = useState([]);
@@ -28,16 +28,18 @@ export default function ScriptLibrary() {
 
   const appId = 'edivy-crm-vault';
 
-  // --- Initialize Gemini API ---
-  const apiKey = "AIzaSyBxvUojJQIKA6eB5Nu4sjeghuwAQGccLss";
-  const genAI = new GoogleGenerativeAI(apiKey);
+  // --- ACCESS GROQ AI (100% FREE) ---
+  const apiKey = "gsk_6f1UGMhBzg2fSBsLtKtWWGdyb3FY3USx1emIT8xOaTlszn";
+  const groq = new OpenAI({
+    apiKey: apiKey,
+    baseURL: "https://api.groq.com/openai/v1", // Points to Groq instead of OpenAI
+    dangerouslyAllowBrowser: true 
+  });
 
-  // --- 1. FIREBASE REAL-TIME SYNC ---
   useEffect(() => {
     if (!db) return;
     const unsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scripts'), (snap) => {
       const fetchedScripts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Sort by newest first based on created_at or ID
       fetchedScripts.sort((a, b) => b.id.localeCompare(a.id));
       setScripts(fetchedScripts);
     });
@@ -61,12 +63,9 @@ export default function ScriptLibrary() {
     setIsScriptModalOpen(true);
   };
 
-  // --- 2. FIREBASE SAVE LOGIC ---
   const handleSaveScript = async (e) => {
     e.preventDefault();
-    
     const finalScript = { ...editingScript };
-    // Force a unique ID if it's a new script
     if (!finalScript.id) {
       finalScript.id = 'script_' + Date.now(); 
       finalScript.created_at = serverTimestamp();
@@ -74,29 +73,21 @@ export default function ScriptLibrary() {
     finalScript.updated_at = serverTimestamp();
     
     try {
-      // Save directly to the live Firebase database!
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'scripts', finalScript.id), finalScript);
       setIsScriptModalOpen(false);
     } catch (error) {
       console.error("Firebase save failed", error);
-      alert("Failed to save script. Check your database connection.");
+      alert("Failed to save script.");
     }
   };
 
-  // --- 3. FIREBASE DELETE LOGIC ---
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to permanently delete this script from the Vault?')) {
-      try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'scripts', id));
-        setIsScriptModalOpen(false); // Close modal if deleting while editing
-      } catch (error) {
-        console.error("Firebase delete failed", error);
-        alert("Failed to delete script.");
-      }
+    if (window.confirm('Delete script?')) {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'scripts', id));
+      setIsScriptModalOpen(false);
     }
   };
 
-  // --- 4. FIREBASE BULK IMPORT LOGIC ---
   const handleImport = async (e) => {
     e.preventDefault();
     try {
@@ -122,20 +113,18 @@ export default function ScriptLibrary() {
     }
   };
 
-  // --- 5. LIVE GEMINI AI GENERATOR ---
+  // --- LIVE GROQ AI GENERATOR ---
   const handleGenerateAI = async () => {
     if (!aiPromptInstruction.trim() && !incomingContext.trim()) {
       return alert("Please enter the context or school's message.");
     }
     if (!apiKey) {
-      return alert("Missing Gemini API Key! Please add VITE_GEMINI_API_KEY to your .env file.");
+      return alert("Missing Groq API Key! Please add VITE_GROQ_API_KEY to your .env file.");
     }
 
     setIsGenerating(true);
     
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      
       const prompt = `
         You are an elite B2B SaaS sales copywriter for Edivy (a premium CRM and communication platform for schools).
         
@@ -149,12 +138,16 @@ export default function ScriptLibrary() {
         SCRIPT: [Write the highly-converting WhatsApp script here. Use {contact_name} for the name. No fluff, no aggressive corporate jargon. Be consultative.]
       `;
 
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
+      const response = await groq.chat.completions.create({
+        model: "llama-3.1-8b-instant", 
+        messages: [{"role": "system", "content": prompt}],
+        temperature: 0.7,
+      });
 
-      // Parse the output into Reasoning and Script
+      const responseText = response.choices[0].message.content;
+
       let finalScript = responseText;
-      let finalReasoning = "Generated by Edivy AI.";
+      let finalReasoning = "Generated by Groq AI.";
 
       if (responseText.includes('SCRIPT:')) {
         const parts = responseText.split('SCRIPT:');
@@ -166,8 +159,8 @@ export default function ScriptLibrary() {
       setAiReasoning(finalReasoning);
       
     } catch (error) {
-      console.error("Gemini AI Error:", error);
-      alert("Failed to generate AI script. Please check the terminal logs.");
+      console.error("Groq AI Error:", error);
+      alert("Failed to generate AI script. Please check the terminal logs or your API Key.");
     } finally {
       setIsGenerating(false);
     }
