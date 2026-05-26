@@ -1,84 +1,92 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, X, Check, CheckCircle2, ChevronUp, ChevronDown, Copy, Power, Droplets, Bot, Clock } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Check, CheckCircle2, ChevronUp, ChevronDown, Copy, Power, Droplets, Bot, Clock, Loader2, Sparkles, Link as LinkIcon } from 'lucide-react';
+import OpenAI from 'openai';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
-// --- ROCK-SOLID E2 DATABASE ENGINE ---
-const STORAGE_KEY = 'edivy_e2_pipeline_data_v1';
+// --- ROCK-SOLID FIREBASE ENGINE (CLOUD STORAGE) ---
+const appId = 'edivy-crm-vault';
+// Saved to a dedicated E2 document so it never touches Engine 1!
+const e2DocRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'e2_active');
 
-const getDb = () => {
-  const data = localStorage.getItem(STORAGE_KEY);
-  if (data) return JSON.parse(data);
-  return {
+const getDbData = async () => {
+  const snap = await getDoc(e2DocRef);
+  if (snap.exists()) return snap.data();
+  const defaultData = {
     versions: [{ id: 'v1', name: 'v1.0 - Delayed Conversion Engine', status: 'active' }],
     stages: [],
     actions: []
   };
+  await setDoc(e2DocRef, defaultData);
+  return defaultData;
 };
 
-const saveDb = (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
 const e2Api = {
-  getVersions: async () => getDb().versions,
+  getVersions: async () => (await getDbData()).versions || [],
   setActiveVersion: async (id) => {
-    const db = getDb();
-    db.versions.forEach(v => v.status = (v.id === id ? 'active' : 'draft'));
-    saveDb(db);
-    return db.versions;
+    const data = await getDbData();
+    if (data.versions) data.versions.forEach(v => v.status = (v.id === id ? 'active' : 'draft'));
+    await updateDoc(e2DocRef, { versions: data.versions });
+    return data.versions;
   },
   duplicateVersion: async (vId, newName) => {
-    const db = getDb();
-    db.versions.push({ id: 'v_' + Date.now(), name: newName, status: 'draft' });
-    saveDb(db);
-    return db.versions;
+    const data = await getDbData();
+    if (!data.versions) data.versions = [];
+    data.versions.push({ id: 'v_' + Date.now(), name: newName, status: 'draft' });
+    await updateDoc(e2DocRef, { versions: data.versions });
+    return data.versions;
   },
-  getStages: async (vId) => getDb().stages.filter(s => s.version_id === vId).sort((a,b) => a.order - b.order),
+  getStages: async (vId) => ((await getDbData()).stages || []).filter(s => s.version_id === vId).sort((a,b) => a.order - b.order),
   saveStage: async (stage) => {
-    const db = getDb();
-    db.stages.push({ ...stage, id: 'stage_' + Date.now(), order: db.stages.length });
-    saveDb(db);
+    const data = await getDbData();
+    if (!data.stages) data.stages = [];
+    data.stages.push({ ...stage, id: 'stage_' + Date.now(), order: data.stages.length });
+    await updateDoc(e2DocRef, { stages: data.stages });
   },
   updateStage: async (id, name) => {
-    const db = getDb();
-    const s = db.stages.find(s => s.id === id);
+    const data = await getDbData();
+    const s = (data.stages || []).find(s => s.id === id);
     if (s) s.name = name;
-    saveDb(db);
+    await updateDoc(e2DocRef, { stages: data.stages });
   },
   deleteStage: async (id) => {
-    const db = getDb();
-    db.stages = db.stages.filter(s => s.id !== id);
-    db.actions = db.actions.filter(a => a.stage_id !== id);
-    saveDb(db);
+    const data = await getDbData();
+    data.stages = (data.stages || []).filter(s => s.id !== id);
+    data.actions = (data.actions || []).filter(a => a.stage_id !== id);
+    await updateDoc(e2DocRef, { stages: data.stages, actions: data.actions });
   },
   reorderStages: async (ids) => {
-    const db = getDb();
+    const data = await getDbData();
     ids.forEach((id, idx) => {
-      const s = db.stages.find(x => x.id === id);
+      const s = (data.stages || []).find(x => x.id === id);
       if (s) s.order = idx;
     });
-    saveDb(db);
+    await updateDoc(e2DocRef, { stages: data.stages });
   },
-  getActions: async (sId) => getDb().actions.filter(a => a.stage_id === sId).sort((a,b) => a.order - b.order),
+  getActions: async (sId) => ((await getDbData()).actions || []).filter(a => a.stage_id === sId).sort((a,b) => a.order - b.order),
   saveAction: async (action) => {
-    const db = getDb();
+    const data = await getDbData();
+    if (!data.actions) data.actions = [];
     if (action.id) {
-      const idx = db.actions.findIndex(a => a.id === action.id);
-      if (idx > -1) db.actions[idx] = { ...db.actions[idx], ...action };
+      const idx = data.actions.findIndex(a => a.id === action.id);
+      if (idx > -1) data.actions[idx] = { ...data.actions[idx], ...action };
     } else {
-      db.actions.push({ ...action, id: 'action_' + Date.now(), order: db.actions.length });
+      data.actions.push({ ...action, id: 'action_' + Date.now(), order: data.actions.length });
     }
-    saveDb(db);
+    await updateDoc(e2DocRef, { actions: data.actions });
   },
   deleteAction: async (id) => {
-    const db = getDb();
-    db.actions = db.actions.filter(a => a.id !== id);
-    saveDb(db);
+    const data = await getDbData();
+    data.actions = (data.actions || []).filter(a => a.id !== id);
+    await updateDoc(e2DocRef, { actions: data.actions });
   },
   reorderActions: async (ids) => {
-    const db = getDb();
+    const data = await getDbData();
     ids.forEach((id, idx) => {
-      const a = db.actions.find(x => x.id === id);
+      const a = (data.actions || []).find(x => x.id === id);
       if (a) a.order = idx;
     });
-    saveDb(db);
+    await updateDoc(e2DocRef, { actions: data.actions });
   }
 };
 // ------------------------------------------------
@@ -94,10 +102,20 @@ export default function E2NurtureBuilder() {
   const [isAddingStage, setIsAddingStage] = useState(false);
   const [newStageName, setNewStageName] = useState('');
 
-  // The missing state that caused the crash is safely initialized here
+  // AI State
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Initialize Groq AI (Paste your key here!)
+  const apiKey = "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";
+  const groq = new OpenAI({
+    apiKey: apiKey,
+    baseURL: "https://api.groq.com/openai/v1",
+    dangerouslyAllowBrowser: true 
+  });
+
   const [newAction, setNewAction] = useState({
     id: null, title: '', description: '', execution_type: 'auto',
-    delay_value: 0, delay_unit: 'days', type: 'whatsapp', ai_guidance: ''
+    delay_value: 0, delay_unit: 'days', type: 'whatsapp', ai_guidance: '', resource_text: '', media_url: ''
   });
   
   const [isActionFormOpen, setIsActionFormOpen] = useState(false);
@@ -161,17 +179,55 @@ export default function E2NurtureBuilder() {
     setIsEditingStage(null); loadStages();
   };
 
-  // Safe opening of the modal form
   const openActionForm = (action = null) => {
     if (action) {
-      setNewAction({ ...action });
+      setNewAction({ 
+        ...action,
+        resource_text: action.resource_text || '',
+        media_url: action.media_url || ''
+      });
     } else {
       setNewAction({
         id: null, title: '', description: '', execution_type: 'auto',
-        delay_value: 0, delay_unit: 'days', type: 'whatsapp', ai_guidance: ''
+        delay_value: 0, delay_unit: 'days', type: 'whatsapp', ai_guidance: '', resource_text: '', media_url: ''
       });
     }
     setIsActionFormOpen(true);
+  };
+
+  // --- LIVE GROQ AI GENERATOR ---
+  const handleGenerateAIPreview = async () => {
+    if (!newAction.ai_guidance.trim()) return alert("Please enter instructions in the AI Guidance box first!");
+    if (!apiKey || apiKey === "gsk_YOUR_ACTUAL_KEY_HERE") return alert("Missing API Key! Please paste it in the code.");
+
+    setIsGenerating(true);
+    try {
+      const prompt = `
+        You are an elite B2B SaaS sales copywriter for Edivy (a premium CRM and communication platform for schools).
+        
+        Based on the following guidance, write a highly-converting, concise WhatsApp nurture script.
+        Use {contact_name} for the prospect's name. No fluff, no aggressive corporate jargon. Be consultative and educational.
+
+        Guidance: "${newAction.ai_guidance}"
+
+        Please provide ONLY the script text. Do not include any explanations or quotes around it.
+      `;
+
+      const response = await groq.chat.completions.create({
+        model: "llama-3.1-8b-instant",
+        messages: [{"role": "system", "content": prompt}],
+        temperature: 0.7,
+      });
+
+      const generatedScript = response.choices[0].message.content.trim();
+      setNewAction({ ...newAction, resource_text: generatedScript });
+      
+    } catch (error) {
+      console.error("Groq AI Error:", error);
+      alert("Failed to generate AI script. Please check your API Key and terminal logs.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleSaveAction = async (e) => {
@@ -316,6 +372,7 @@ export default function E2NurtureBuilder() {
                           <span className="flex items-center text-[9px] bg-blue-100 text-blue-700 font-black px-2 py-0.5 rounded border border-blue-200 uppercase tracking-widest"><Bot className="w-3 h-3 mr-1" /> {action.execution_type === 'auto' ? 'Automated' : 'AI-Assisted'}</span>
                           <span className="flex items-center text-[9px] bg-slate-100 text-slate-700 font-black px-2 py-0.5 rounded border border-slate-200 uppercase tracking-widest"><Clock className="w-3 h-3 mr-1" /> {action.delay_value} {action.delay_unit}</span>
                           <h4 className="font-black text-gray-800 text-sm">{action.title}</h4>
+                          {action.media_url && <LinkIcon className="w-3.5 h-3.5 text-blue-400" title="Media Attached" />}
                         </div>
                         <p className="text-xs font-medium text-gray-500 mt-1">{action.description}</p>
                       </div>
@@ -378,12 +435,37 @@ export default function E2NurtureBuilder() {
                       </div>
                     </div>
 
-                    <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-5 space-y-4">
+                    <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-5 space-y-5">
                       <h4 className="font-black text-blue-900 text-[10px] uppercase tracking-widest flex items-center">
-                        <Bot className="w-4 h-4 mr-2 text-blue-500" /> AI Guidance Rules (Optional)
+                        <Bot className="w-4 h-4 mr-2 text-blue-500" /> Nurture Scripts & AI Auto-Pilot
                       </h4>
-                      <div>
-                        <textarea value={newAction.ai_guidance} onChange={(e) => setNewAction({ ...newAction, ai_guidance: e.target.value })} className="w-full border border-blue-200 rounded-lg px-4 py-3 text-sm text-slate-700 bg-white outline-none focus:border-blue-500" rows="2" placeholder="e.g., Frame as an industry observation. NO direct pitch..." />
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* LEFT BOX: AI Prompt */}
+                        <div className="flex flex-col">
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-purple-600 mb-2">1. AI Guidance Prompt (The Brain)</label>
+                           <textarea value={newAction.ai_guidance} onChange={(e) => setNewAction({ ...newAction, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/30 outline-none focus:border-purple-500 min-h-[160px] shadow-sm mb-3" placeholder="e.g., Frame as an industry observation. NO direct pitch..." />
+                           <button 
+                             type="button" 
+                             onClick={handleGenerateAIPreview} 
+                             disabled={isGenerating}
+                             className="w-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-xl shadow-md hover:bg-purple-700 transition flex items-center justify-center disabled:opacity-50"
+                           >
+                             {isGenerating ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Generating...</> : <><Sparkles className="w-3.5 h-3.5 mr-2" /> Generate Script</>}
+                           </button>
+                        </div>
+
+                        {/* RIGHT BOX: Manual Script */}
+                        <div className="flex flex-col">
+                           <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">2. Approved Script (The Output)</label>
+                           <textarea value={newAction.resource_text} onChange={(e) => setNewAction({ ...newAction, resource_text: e.target.value })} className="w-full border border-blue-200 rounded-xl px-4 py-3 text-sm bg-white outline-none focus:border-blue-500 flex-1 min-h-[160px] shadow-sm" placeholder="Hi {contact_name}, thought you might find this interesting..." />
+                           <p className="text-[9px] font-bold text-slate-400 mt-3 text-center uppercase tracking-widest">System will send exactly what is in this box.</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-blue-100">
+                         <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center"><LinkIcon className="w-3 h-3 mr-1" /> Media Attachment (URL)</label>
+                         <input type="text" value={newAction.media_url} onChange={(e) => setNewAction({ ...newAction, media_url: e.target.value })} className="w-full border border-blue-200 rounded-lg px-4 py-2.5 text-sm bg-white shadow-sm" placeholder="https://link-to-flyer.pdf" />
                       </div>
                     </div>
 
