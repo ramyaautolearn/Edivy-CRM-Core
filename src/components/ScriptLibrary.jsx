@@ -29,7 +29,7 @@ export default function ScriptLibrary() {
   const appId = 'edivy-crm-vault';
 
   // --- ACCESS GROQ AI (100% FREE) ---
-  const apiKey = "gsk_6f1UGMhBzg2fSBsLtKtWWGdyb3FY3USx1emIT8xOaTlszn";
+  const apiKey = "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";
   const groq = new OpenAI({
     apiKey: apiKey,
     baseURL: "https://api.groq.com/openai/v1", // Points to Groq instead of OpenAI
