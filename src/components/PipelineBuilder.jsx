@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog, Link as LinkIcon, Sparkles } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog, Link as LinkIcon, Sparkles, Loader2 } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import OpenAI from 'openai'; // <-- ADDED GROQ AI
 
 const appId = 'edivy-crm-vault';
 const pipelineDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active');
@@ -88,6 +89,17 @@ export default function AdminPipelineBuilder() {
   const [stageNameInput, setStageNameInput] = useState('');
   const [isAddingStage, setIsAddingStage] = useState(false);
   const [newStageName, setNewStageName] = useState('');
+
+  // AI State
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Initialize Groq AI
+  const apiKey = "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";
+  const groq = new OpenAI({
+    apiKey: apiKey,
+    baseURL: "https://api.groq.com/openai/v1",
+    dangerouslyAllowBrowser: true 
+  });
 
   const [newTask, setNewTask] = useState({
     id: null, title: '', description: '', execution_type: 'human', is_mandatory: true,
@@ -176,8 +188,39 @@ export default function AdminPipelineBuilder() {
     setIsTaskFormOpen(true);
   };
 
-  const handleGenerateAIPreview = () => {
-    alert("OpenAI Integration Pending: Once wired, this will send your prompt to OpenAI and drop the generated message into the 'Approved Script' box on the right!");
+  // --- LIVE GROQ AI GENERATOR ---
+  const handleGenerateAIPreview = async () => {
+    if (!newTask.ai_guidance.trim()) return alert("Please enter instructions in the AI Guidance box first!");
+    if (!apiKey) return alert("Missing API Key! Ensure VITE_GROQ_API_KEY is in your .env file.");
+
+    setIsGenerating(true);
+    try {
+      const prompt = `
+        You are an elite B2B SaaS sales copywriter for Edivy (a premium CRM and communication platform for schools).
+        
+        Based on the following guidance, write a highly-converting, concise WhatsApp script.
+        Use {contact_name} for the prospect's name. No fluff, no aggressive corporate jargon. Be consultative.
+
+        Guidance: "${newTask.ai_guidance}"
+
+        Please provide ONLY the script text. Do not include any explanations or quotes around it.
+      `;
+
+      const response = await groq.chat.completions.create({
+        model: "llama-3.1-8b-instant",
+        messages: [{"role": "system", "content": prompt}],
+        temperature: 0.7,
+      });
+
+      const generatedScript = response.choices[0].message.content.trim();
+      setNewTask({ ...newTask, resource_text: generatedScript });
+      
+    } catch (error) {
+      console.error("Groq AI Error:", error);
+      alert("Failed to generate AI script. Please check your API Key and terminal logs.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleSaveTask = async (e) => {
@@ -400,7 +443,6 @@ export default function AdminPipelineBuilder() {
                       </div>
                     </div>
 
-                    {/* NEW: UNIFIED SIDE-BY-SIDE SCRIPT UI */}
                     <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5 space-y-5">
                       <h4 className="font-black text-indigo-900 text-[10px] uppercase tracking-widest flex items-center">
                         <Bot className="w-4 h-4 mr-2 text-indigo-500" /> Execution Scripts & AI Auto-Pilot
@@ -411,8 +453,13 @@ export default function AdminPipelineBuilder() {
                         <div className="flex flex-col">
                            <label className="block text-[9px] font-black uppercase tracking-widest text-purple-600 mb-2">1. AI Guidance Prompt (The Brain)</label>
                            <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/30 outline-none focus:border-purple-500 min-h-[160px] shadow-sm mb-3" placeholder="e.g., Review previous chat logs. Write a casual 2-sentence reply offering a demo..." />
-                           <button type="button" onClick={handleGenerateAIPreview} className="w-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-xl shadow-md hover:bg-purple-700 transition flex items-center justify-center">
-                             <Sparkles className="w-3.5 h-3.5 mr-2" /> Generate Script
+                           <button 
+                             type="button" 
+                             onClick={handleGenerateAIPreview} 
+                             disabled={isGenerating}
+                             className="w-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-xl shadow-md hover:bg-purple-700 transition flex items-center justify-center disabled:opacity-50"
+                           >
+                             {isGenerating ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Generating...</> : <><Sparkles className="w-3.5 h-3.5 mr-2" /> Generate Script</>}
                            </button>
                         </div>
 
