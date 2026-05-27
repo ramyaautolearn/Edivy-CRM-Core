@@ -8,11 +8,12 @@ import {
 import { db } from '../firebase';
 
 export default function DealRoomTab({ user, initialLeadId }) {
-  // Core State
   const [leads, setLeads] = useState([]);
-  const [crmUsers, setCrmUsers] = useState([]); // Global User Directory
+  const [crmUsers, setCrmUsers] = useState([]);
   const [selectedLeadId, setSelectedLeadId] = useState(initialLeadId || null);
   const [loading, setLoading] = useState(true);
+  
+  // Navigation State
   const [activeTab, setActiveTab] = useState('action_queue'); 
   
   // Note & Pipeline State
@@ -26,7 +27,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   // Calendly State
   const [showCalendlyConfirm, setShowCalendlyConfirm] = useState(false);
-  const [demoDateTime, setDemoDateTime] = useState(''); // Stores the selected date/time
+  const [demoDateTime, setDemoDateTime] = useState(''); 
 
   // Bank Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,6 +35,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const [filterStage, setFilterStage] = useState('all');
   const [filterDateType, setFilterDateType] = useState('all');
   const [filterCustomDate, setFilterCustomDate] = useState('');
+  const [filterSource, setFilterSource] = useState('all'); // NEW: For Resurrected
 
   const appId = 'edivy-crm-vault';
   const today = new Date().toISOString().split('T')[0];
@@ -41,12 +43,10 @@ export default function DealRoomTab({ user, initialLeadId }) {
   useEffect(() => {
     if (!db || !user?.id) return;
 
-    // Fetch Global Users Directory
     const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
         if (!snap.empty) {
             setCrmUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         } else {
-             // Fallback to root users if nested structure is empty
              onSnapshot(collection(db, 'users'), (rootSnap) => {
                  if (!rootSnap.empty) setCrmUsers(rootSnap.docs.map(d => ({ id: d.id, ...d.data() })));
              });
@@ -68,7 +68,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
     const unsubScripts = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scripts'), (snap) => setVaultScripts(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     
-    // Fetch ALL Leads
     const unsubLeads = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), (snap) => {
         const allFetchedLeads = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         allFetchedLeads.sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -79,19 +78,22 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return () => { unsubPipelines(); unsubScripts(); unsubLeads(); unsubUsers(); };
   }, [user]);
 
-  useEffect(() => { 
-    setExpandedTaskId(0); 
-    setUnlockedTasks([]); 
-    setShowVault(false); 
-    setShowCalendlyConfirm(false); 
-    setDemoDateTime(''); // Reset date picker when switching leads
-  }, [selectedLeadId]);
+  useEffect(() => { setExpandedTaskId(0); setUnlockedTasks([]); setShowVault(false); setShowCalendlyConfirm(false); setDemoDateTime(''); }, [selectedLeadId]);
 
   const safeDateStr = (dateVal) => {
     if (!dateVal) return '';
     if (typeof dateVal === 'object' && dateVal.seconds) return new Date(dateVal.seconds * 1000).toISOString().split('T')[0];
     if (typeof dateVal === 'string') return dateVal.split('T')[0];
     return '';
+  };
+
+  const selectedLead = leads.find((l) => l.id === selectedLeadId);
+
+  // MAGIC FLAG CLEARER (For Disappearing Badges)
+  const clearRecentMoveFlag = async () => {
+    if (selectedLead?.recent_move) {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { recent_move: null });
+    }
   };
 
   // --- LEAD OWNERSHIP ACTIONS ---
@@ -118,6 +120,8 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const handleAddNote = async (e) => {
     e.preventDefault();
     if (!noteText.trim() || !selectedLeadId) return;
+    await clearRecentMoveFlag();
+
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLeadId), {
         logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: noteType, text: noteText, agent: user?.name || 'Agent' }),
@@ -156,6 +160,8 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const toggleTaskCompletion = async (stageName, taskName) => {
     if (!selectedLead) return;
+    await clearRecentMoveFlag();
+
     const taskKey = `${stageName}::${taskName}`;
     let currentCompleted = selectedLead.completed_tasks || [];
     const isCompleted = currentCompleted.includes(taskKey);
@@ -179,71 +185,44 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const handleReLock = (taskKey) => { setUnlockedTasks(prev => prev.filter(k => k !== taskKey)); };
 
-  // CALENDLY SPECIFIC FUNCTIONS (Option 2 - Pop Up Window)
   const handleOpenCalendly = () => {
-    const width = 1000;
-    const height = 700;
+    const width = 1000; const height = 700;
     const left = (window.innerWidth - width) / 2;
     const top = (window.innerHeight - height) / 2;
-    
-    window.open(
-      "https://calendly.com/ramya-autolearn/30min", 
-      "CalendlyBooking", 
-      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-    );
-    
+    window.open("https://calendly.com/ramya-autolearn/30min", "CalendlyBooking", `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`);
     setShowCalendlyConfirm(true);
   };
 
   const handleConfirmCalendlyBooking = async () => {
-    if (!selectedLead || isLockedDown || !demoDateTime) return;
-    
+    if (!selectedLead || !demoDateTime) return;
+    await clearRecentMoveFlag();
+
     let updates = { 
-      is_demo_booked: true,
-      demo_date: demoDateTime, // Saving the selected date and time!
-      temperature: 'Hot',
-      next_follow_up: today, 
+      is_demo_booked: true, demo_date: demoDateTime, temperature: 'Hot', next_follow_up: today, 
       last_activity_at: serverTimestamp(),
-      logs: arrayUnion({ 
-        id: Date.now().toString(), 
-        date: new Date().toISOString(), 
-        type: 'System', 
-        text: `Action Completed: Meeting Booked for ${new Date(demoDateTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`, 
-        agent: user?.name || 'Agent' 
-      })
+      logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Action Completed: Meeting Booked for ${new Date(demoDateTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`, agent: user?.name || 'Agent' })
     };
     
     const demoStage = e1Pipeline?.stages?.find(s => s.name.toLowerCase().includes('demo') || s.name.toLowerCase().includes('meeting'))?.name;
     if (demoStage) updates.stage_name = demoStage;
     
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), updates);
-    setShowCalendlyConfirm(false);
-    setDemoDateTime('');
-    setExpandedTaskId(0); 
-    setUnlockedTasks([]);
-    setActiveTab('demos'); // Auto-switch to Demos tab to show them it moved!
+    setShowCalendlyConfirm(false); setDemoDateTime(''); setExpandedTaskId(0); setUnlockedTasks([]); setActiveTab('demos');
   };
 
   const toggleDemoBooked = async () => {
-    if (!selectedLead || isLockedDown) return;
+    if (!selectedLead) return;
+    await clearRecentMoveFlag();
+
     const isCurrentlyBooked = selectedLead.is_demo_booked;
-    
     let updates = { 
-      is_demo_booked: !isCurrentlyBooked,
-      demo_date: !isCurrentlyBooked ? (selectedLead.demo_date || null) : null, // Clear the date if unchecking
+      is_demo_booked: !isCurrentlyBooked, demo_date: !isCurrentlyBooked ? (selectedLead.demo_date || null) : null,
       last_activity_at: serverTimestamp(),
-      logs: arrayUnion({ 
-        id: Date.now().toString(), 
-        date: new Date().toISOString(), 
-        type: 'System', 
-        text: isCurrentlyBooked ? 'Action Reversed: Removed Demo Booked Status' : 'Action Completed: Manual Demo Booked', 
-        agent: user?.name || 'Agent' 
-      })
+      logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: isCurrentlyBooked ? 'Action Reversed: Removed Demo Booked Status' : 'Action Completed: Manual Demo Booked', agent: user?.name || 'Agent' })
     };
     
     if (!isCurrentlyBooked) {
-      updates.temperature = 'Hot'; 
-      updates.next_follow_up = today; 
+      updates.temperature = 'Hot'; updates.next_follow_up = today; 
       const demoStage = e1Pipeline?.stages?.find(s => s.name.toLowerCase().includes('demo') || s.name.toLowerCase().includes('meeting'))?.name;
       if (demoStage) updates.stage_name = demoStage;
     }
@@ -255,7 +234,9 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const ejectToE2 = async () => {
     if (!selectedLead || !window.confirm("Eject this lead from Active Sales to Engine 2 (Nurture)?")) return;
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
-      engine: 2, stage_name: 'Awakening (Entry)', temperature: 'Cold', next_follow_up: null, last_activity_at: serverTimestamp(),
+      engine: 2, stage_name: 'Awakening (Entry)', temperature: 'Cold', next_follow_up: null, 
+      recent_move: 'E1 to E2', // SET FLAG FOR BADGE
+      last_activity_at: serverTimestamp(),
       logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Ejected Lead to Engine 2 (Nurture)`, agent: user?.name || 'Agent' })
     });
   };
@@ -321,6 +302,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   };
 
   const myLeads = leads.filter(l => {
+      if (l.engine === 2) return false; // Hide E2 leads from E1 Deal Room completely!
       if (!l.assigned_to || !user) return false;
       const assignedLower = String(l.assigned_to).toLowerCase();
       const userIdLower = String(user.id || '').toLowerCase();
@@ -328,14 +310,18 @@ export default function DealRoomTab({ user, initialLeadId }) {
       return assignedLower === userIdLower || assignedLower === userEmailLower;
   });
 
-  const actionQueueLeads = myLeads.filter(l => isLeadActionableToday(l) && !l.is_demo_booked); // Don't show in Action Queue if booked
+  const actionQueueLeads = myLeads.filter(l => isLeadActionableToday(l) && !l.is_demo_booked); 
   const demoLeads = myLeads.filter(l => l.is_demo_booked);
+  const resurrectedLeads = myLeads.filter(l => l.resurrected_from_e2 === true); // NEW: Resurrected
   
   let displayedLeads = [];
   if (activeTab === 'action_queue') displayedLeads = actionQueueLeads;
   else if (activeTab === 'demos') displayedLeads = demoLeads;
+  else if (activeTab === 'resurrected') displayedLeads = resurrectedLeads;
   else if (activeTab === 'all') {
       displayedLeads = leads.filter(l => {
+          if (l.engine === 2) return false; // Ensure E2 leads are hidden from Bank
+          
           if (searchQuery) {
               const q = searchQuery.toLowerCase();
               const matchName = (l.school_name || '').toLowerCase().includes(q);
@@ -360,6 +346,8 @@ export default function DealRoomTab({ user, initialLeadId }) {
           else if (filterDateType === 'overdue') { if (!lDateStr || lDateStr >= today) return false; }
           else if (filterDateType === 'custom') { if (!filterCustomDate || lDateStr !== filterCustomDate) return false; }
           
+          if (filterSource === 'resurrected' && !l.resurrected_from_e2) return false; // NEW FILTER
+
           return true;
       });
   }
@@ -372,19 +360,13 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const dropdownUsers = colleagueIds.map(id => {
       const crmU = crmUsers.find(u => u.id === id || u.uid === id || u.email === id);
       let displayName = `Agent: ${id.substring(0, 6)}...`;
-      
       if (crmU) {
           let baseName = crmU.full_name || crmU.legal_name || crmU.name || (crmU.first_name ? `${crmU.first_name} ${crmU.last_name || ''}`.trim() : null) || crmU.email || displayName;
           displayName = crmU.badge_id ? `[${crmU.badge_id}] ${baseName}` : baseName;
-      } else if (id.includes('@')) {
-          displayName = id.split('@')[0];
-      } else if (id.toLowerCase() === 'staff') {
-          displayName = 'Staff';
-      }
+      } else if (id.includes('@')) displayName = id.split('@')[0];
       return { id, display: displayName };
   });
 
-  const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
   const isSelectedMine = selectedLead && (String(selectedLead.assigned_to).toLowerCase() === String(user?.id || '').toLowerCase() || String(selectedLead.assigned_to).toLowerCase() === String(user?.email || '').toLowerCase() || user?.role === 'admin');
   const isSelectedUnassigned = selectedLead && !selectedLead.assigned_to;
@@ -441,15 +423,14 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
     const dueDate = new Date(baseDate.getTime() + delayMs);
     const dateString = dueDate.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-
     return isEstimated ? `Est: ${dateString}` : `Due: ${dateString}`;
   };
 
   const handleOpenWhatsApp = async (customScript = null) => {
     if (!selectedLead || isLockedDown) return;
-    
+    await clearRecentMoveFlag();
+
     let textToCopy = typeof customScript === 'string' ? customScript : '';
-    
     if (!textToCopy && activeTask && activeTask.override_script) {
         textToCopy = activeTask.override_script;
     }
@@ -459,11 +440,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
     if (textToCopy) {
       textToCopy = textToCopy.replace(/{contact_name}/g, selectedLead.contact_name || 'there');
-      try {
-        await navigator.clipboard.writeText(textToCopy);
-      } catch (err) {
-        console.warn("Clipboard failed, but opening WhatsApp anyway", err);
-      }
+      try { await navigator.clipboard.writeText(textToCopy); } catch (err) {}
       window.open(`https://wa.me/${cleanPhone}`, '_blank');
     } else {
       alert("⚠️ Script Required: This task does not have a manual script configured. Please write manually in WhatsApp.");
@@ -476,37 +453,26 @@ export default function DealRoomTab({ user, initialLeadId }) {
     setShowVault(false);
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
-        logs: arrayUnion({ 
-          id: Date.now().toString(), 
-          date: new Date().toISOString(), 
-          type: 'WhatsApp',
-          text: `Tactical Pivot: Used Vault Script [${scriptName}]`, 
-          agent: user?.name || 'Agent' 
-        }),
+        logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'WhatsApp', text: `Tactical Pivot: Used Vault Script [${scriptName}]`, agent: user?.name || 'Agent' }),
         last_activity_at: serverTimestamp()
       });
-    } catch (e) {
-      console.error("Failed to log pivot", e);
-    }
+    } catch (e) {}
   };
 
   const clearAllFilters = () => {
-      setSearchQuery('');
-      setFilterOwner('all');
-      setFilterStage('all');
-      setFilterDateType('all');
-      setFilterCustomDate('');
+      setSearchQuery(''); setFilterOwner('all'); setFilterStage('all'); setFilterDateType('all'); setFilterCustomDate(''); setFilterSource('all');
   };
 
-  const isFilterActive = searchQuery || filterOwner !== 'all' || filterStage !== 'all' || filterDateType !== 'all';
+  const isFilterActive = searchQuery || filterOwner !== 'all' || filterStage !== 'all' || filterDateType !== 'all' || filterSource !== 'all';
 
   return (
     <div className="flex h-full bg-slate-50 overflow-hidden font-sans text-slate-800 relative w-full">
       <aside className="w-[320px] bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 h-full">
         <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <button onClick={() => setActiveTab('action_queue')} className={`py-2.5 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'action_queue' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Zap className="w-3 h-3 mr-2"/> Action Queue</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='action_queue'?'bg-white/20':'bg-slate-100'}`}>{actionQueueLeads.length}</span></button>
-          <button onClick={() => setActiveTab('demos')} className={`py-2.5 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'demos' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Calendar className="w-3 h-3 mr-2"/> Demos Booked</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='demos'?'bg-white/20':'bg-slate-100'}`}>{demoLeads.length}</span></button>
-          <button onClick={() => setActiveTab('all')} className={`py-2.5 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Inbox className="w-3 h-3 mr-2"/> All Leads (Bank)</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='all'?'bg-white/20':'bg-slate-100'}`}>{leads.length}</span></button>
+          <button onClick={() => setActiveTab('action_queue')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'action_queue' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Zap className="w-3.5 h-3.5 mr-2"/> Action Queue</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='action_queue'?'bg-white/20':'bg-slate-100'}`}>{actionQueueLeads.length}</span></button>
+          <button onClick={() => setActiveTab('demos')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'demos' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Calendar className="w-3.5 h-3.5 mr-2"/> Demos Booked</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='demos'?'bg-white/20':'bg-slate-100'}`}>{demoLeads.length}</span></button>
+          <button onClick={() => setActiveTab('resurrected')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'resurrected' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-orange-300' }`}><span className="flex items-center"><Flame className="w-3.5 h-3.5 mr-2"/> Resurrected (E2)</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='resurrected'?'bg-white/20':'bg-slate-100'}`}>{resurrectedLeads.length}</span></button>
+          <button onClick={() => setActiveTab('all')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Inbox className="w-3.5 h-3.5 mr-2"/> All Leads (Bank)</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='all'?'bg-white/20':'bg-slate-100'}`}>{leads.filter(l => l.engine !== 2).length}</span></button>
         </div>
 
         {activeTab === 'all' && (
@@ -535,17 +501,21 @@ export default function DealRoomTab({ user, initialLeadId }) {
                         {pipelineStages.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="grid grid-cols-2 gap-2">
                     <select value={filterDateType} onChange={(e) => setFilterDateType(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
-                        <option value="all">Any Action Date</option>
+                        <option value="all">Any Date</option>
                         <option value="today">Due Today</option>
                         <option value="overdue">Overdue</option>
-                        <option value="custom">Specific Date Picker...</option>
+                        <option value="custom">Specific Date...</option>
                     </select>
-                    {filterDateType === 'custom' && (
-                        <input type="date" value={filterCustomDate} onChange={(e) => setFilterCustomDate(e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-indigo-700 outline-none uppercase tracking-wider cursor-pointer" />
-                    )}
+                    <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
+                        <option value="all">Any Source</option>
+                        <option value="resurrected">E2 Resurrected Only</option>
+                    </select>
                 </div>
+                {filterDateType === 'custom' && (
+                    <input type="date" value={filterCustomDate} onChange={(e) => setFilterCustomDate(e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-indigo-700 outline-none uppercase tracking-wider cursor-pointer" />
+                )}
             </div>
         )}
 
@@ -610,11 +580,18 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   <p className="flex items-center"><Phone className="w-4 h-4 mr-1 text-indigo-500" /> {selectedLead.phone}</p>
                 </div>
                 
-                {/* NEW: THE PINNED DEMO BADGE */}
+                {/* THE PINNED DEMO BADGE */}
                 {selectedLead.is_demo_booked && selectedLead.demo_date && (
-                  <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm">
+                  <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm mr-3">
                     <Calendar className="w-3.5 h-3.5 mr-2" />
                     Upcoming Demo: {new Date(selectedLead.demo_date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                  </div>
+                )}
+
+                {/* THE RECENTLY MOVED BADGE (Disappears on work) */}
+                {selectedLead.recent_move === 'E2 to E1' && (
+                  <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-orange-50 border border-orange-200 text-orange-600 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm animate-pulse">
+                    <Flame className="w-3.5 h-3.5 mr-2" /> RECENTLY MOVED: E2 TO E1
                   </div>
                 )}
               </div>
@@ -637,7 +614,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
               </div>
             </header>
 
-            {/* CONTENT & VAULT WRAPPER */}
             <div className="flex-1 flex overflow-hidden relative">
                 
                 {/* Main Scrollable Workspace */}
@@ -756,7 +732,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                         <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
                         
                         <button onClick={toggleDemoBooked} disabled={isLockedDown} className={`px-4 py-2.5 border rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center disabled:opacity-50 disabled:cursor-not-allowed ${selectedLead.is_demo_booked ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600'}`}>
-                          {selectedLead.is_demo_booked ? '❌ Cancel Demo' : '📅 Demo Booked'}
+                          {selectedLead.is_demo_booked ? '❌ Cancel Demo' : '📅 Manual Demo Toggle'}
                         </button>
 
                         <button onClick={toggleHotStatus} disabled={isLockedDown} className={`px-4 py-2.5 border rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${selectedLead.temperature === 'Hot' ? 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-white' : 'bg-white text-slate-600 border-slate-200 hover:bg-orange-50 hover:text-orange-600'}`}>
@@ -789,7 +765,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                       <div>
                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center"><Calendar className="w-3 h-3 mr-1" /> The Lead Journey (Audit Trail)</h4>
                         <div className="bg-white rounded-2xl p-5 max-h-[400px] overflow-y-auto border border-slate-200 shadow-sm">
-                          {(!selectedLead.logs || selectedLead.logs.length === 0) ? <div className="py-12 text-center"><Inbox className="w-8 h-8 text-slate-200 mx-auto mb-3" /><p className="text-xs text-slate-400 font-bold uppercase tracking-widest">No activity logged yet.</p></div> : (
+                          {(!Array.isArray(selectedLead.logs) || selectedLead.logs.length === 0) ? <div className="py-12 text-center"><Inbox className="w-8 h-8 text-slate-200 mx-auto mb-3" /><p className="text-xs text-slate-400 font-bold uppercase tracking-widest">No activity logged yet.</p></div> : (
                             <div className="space-y-4">
                               {[...selectedLead.logs].reverse().map((log, i) => (
                                 <div key={i} className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-start gap-4 group hover:border-indigo-100 transition-colors">

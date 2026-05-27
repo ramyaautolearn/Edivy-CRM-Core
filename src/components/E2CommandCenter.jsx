@@ -89,9 +89,19 @@ export default function E2CommandCenter({ user }) {
     return completedInStage.length > 0 ? completedInStage[completedInStage.length - 1] : null;
   };
 
+  const selectedLead = allLeads.find((l) => l.id === selectedLeadId);
+
+  // Magic Flag Clearer
+  const clearRecentMoveFlag = async () => {
+    if (selectedLead?.recent_move) {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { recent_move: null });
+    }
+  };
+
   const handleMarkComplete = async (lead, currentAction, nextAction) => {
+    await clearRecentMoveFlag(); // Clear the "Recently Moved" badge
+
     let newDueDate = null;
-    
     if (nextAction) {
       const delayVal = nextAction.delay_value || 0;
       const delayUnit = nextAction.delay_unit || 'days';
@@ -160,6 +170,7 @@ export default function E2CommandCenter({ user }) {
       stage_name: 'New Lead', 
       next_follow_up: today,
       resurrected_from_e2: true,
+      recent_move: 'E2 to E1', // Set the E1 Badge Flag
       last_activity_at: serverTimestamp(),
       logs: arrayUnion({ 
         id: Date.now().toString(), 
@@ -173,6 +184,7 @@ export default function E2CommandCenter({ user }) {
   };
 
   const handleOpenWhatsApp = async (lead, script) => {
+    await clearRecentMoveFlag(); // Clear the "Recently Moved" badge
     let textToCopy = (script || '').replace(/{contact_name}/g, lead.contact_name || 'there');
     const cleanPhone = (lead.phone || '').replace(/\D/g, ''); 
     try { await navigator.clipboard.writeText(textToCopy); } catch (err) { }
@@ -182,6 +194,8 @@ export default function E2CommandCenter({ user }) {
   const handleAddNote = async (e) => {
     e.preventDefault();
     if (!noteText.trim() || !selectedLeadId) return;
+    await clearRecentMoveFlag(); // Clear the "Recently Moved" badge
+
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLeadId), {
         logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: noteType, text: noteText, agent: user?.name || 'Agent' }),
@@ -248,7 +262,6 @@ export default function E2CommandCenter({ user }) {
     return <FileText className="w-3 h-3 text-slate-400" />;
   };
 
-  const selectedLead = allLeads.find((l) => l.id === selectedLeadId);
   const currentStage = selectedLead ? (e2Pipeline?.stages || []).find(s => s.name === selectedLead.stage_name) : null;
   const activeTask = selectedLead ? getNextActionForLead(selectedLead, currentStage) : null;
   const lastCompletedTask = selectedLead ? getLastCompletedAction(selectedLead, currentStage) : null;
@@ -364,6 +377,13 @@ export default function E2CommandCenter({ user }) {
                   <p className="flex items-center"><User className="w-4 h-4 mr-1 text-blue-500" /> {selectedLead.contact_name}</p>
                   <p className="flex items-center"><Phone className="w-4 h-4 mr-1 text-blue-500" /> {selectedLead.phone}</p>
                 </div>
+                
+                {/* RECENTLY MOVED BADGE (Disappears on work) */}
+                {selectedLead.recent_move === 'E1 to E2' && (
+                  <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm animate-pulse">
+                    <Snowflake className="w-3.5 h-3.5 mr-2" /> RECENTLY MOVED: E1 TO E2
+                  </div>
+                )}
               </div>
               
               <div className="text-right flex gap-3">
@@ -380,16 +400,18 @@ export default function E2CommandCenter({ user }) {
 
                 {selectedLead.engine === 2 && (
                   <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200">
-                    <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
-                      <h3 className="text-[10px] font-black text-blue-800 uppercase tracking-widest flex items-center">
+                    
+                    {/* LAYOUT FIX: Used flex-wrap and gap to prevent floating out */}
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6 border-b border-slate-100 pb-4 gap-4">
+                      <h3 className="text-[10px] font-black text-blue-800 uppercase tracking-widest flex items-center shrink-0">
                         <PlayCircle className="w-4 h-4 mr-2 text-blue-500" /> Drop Execution Protocol
                       </h3>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Current Stage:</span>
+                      <div className="flex items-center gap-2 max-w-full">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0">Current Stage:</span>
                         <select 
                           value={selectedLead.stage_name || ''} 
                           onChange={(e) => handleStageChange(selectedLead.id, e.target.value)}
-                          className="bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:border-blue-400 transition-colors"
+                          className="bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:border-blue-400 transition-colors w-full sm:w-auto"
                         >
                           <option value="" disabled>Select Stage...</option>
                           {e2Pipeline?.stages?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -415,19 +437,12 @@ export default function E2CommandCenter({ user }) {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-blue-50/30 p-5 rounded-2xl border border-blue-100">
-                          <div>
-                             <label className="block text-[9px] font-black uppercase tracking-widest text-purple-500 mb-2">AI Guidance / Strategy</label>
-                             <div className="bg-purple-50/50 p-4 rounded-xl text-sm font-medium text-purple-900 border border-purple-100 shadow-inner min-h-[120px]">
-                               {activeTask.ai_guidance || 'No guidance provided.'}
-                             </div>
-                          </div>
-                          <div>
+                        {/* SCRIPT FOCUS: Removed AI Guidance Box, made Script Full Width */}
+                        <div className="bg-blue-50/30 p-5 rounded-2xl border border-blue-100">
                              <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Approved WhatsApp Script</label>
                              <div className="bg-white p-4 rounded-xl text-sm font-medium text-slate-700 border border-slate-200 shadow-inner min-h-[120px] whitespace-pre-wrap">
                                {(activeTask.resource_text || '').replace(/{contact_name}/g, selectedLead.contact_name || '')}
                              </div>
-                          </div>
                         </div>
 
                         <div className="flex flex-wrap gap-3 items-center pt-4">
