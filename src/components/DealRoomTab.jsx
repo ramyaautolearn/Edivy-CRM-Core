@@ -24,6 +24,10 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const [expandedTaskId, setExpandedTaskId] = useState(0); 
   const [unlockedTasks, setUnlockedTasks] = useState([]); 
 
+  // Calendly State
+  const [showCalendlyConfirm, setShowCalendlyConfirm] = useState(false);
+  const [demoDateTime, setDemoDateTime] = useState(''); // Stores the selected date/time
+
   // Bank Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [filterOwner, setFilterOwner] = useState('all');
@@ -75,7 +79,13 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return () => { unsubPipelines(); unsubScripts(); unsubLeads(); unsubUsers(); };
   }, [user]);
 
-  useEffect(() => { setExpandedTaskId(0); setUnlockedTasks([]); setShowVault(false); }, [selectedLeadId]);
+  useEffect(() => { 
+    setExpandedTaskId(0); 
+    setUnlockedTasks([]); 
+    setShowVault(false); 
+    setShowCalendlyConfirm(false); 
+    setDemoDateTime(''); // Reset date picker when switching leads
+  }, [selectedLeadId]);
 
   const safeDateStr = (dateVal) => {
     if (!dateVal) return '';
@@ -169,18 +179,64 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const handleReLock = (taskKey) => { setUnlockedTasks(prev => prev.filter(k => k !== taskKey)); };
 
+  // CALENDLY SPECIFIC FUNCTIONS (Option 2 - Pop Up Window)
+  const handleOpenCalendly = () => {
+    const width = 1000;
+    const height = 700;
+    const left = (window.innerWidth - width) / 2;
+    const top = (window.innerHeight - height) / 2;
+    
+    window.open(
+      "https://calendly.com/ramya-autolearn/30min", 
+      "CalendlyBooking", 
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+    );
+    
+    setShowCalendlyConfirm(true);
+  };
+
+  const handleConfirmCalendlyBooking = async () => {
+    if (!selectedLead || isLockedDown || !demoDateTime) return;
+    
+    let updates = { 
+      is_demo_booked: true,
+      demo_date: demoDateTime, // Saving the selected date and time!
+      temperature: 'Hot',
+      next_follow_up: today, 
+      last_activity_at: serverTimestamp(),
+      logs: arrayUnion({ 
+        id: Date.now().toString(), 
+        date: new Date().toISOString(), 
+        type: 'System', 
+        text: `Action Completed: Meeting Booked for ${new Date(demoDateTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`, 
+        agent: user?.name || 'Agent' 
+      })
+    };
+    
+    const demoStage = e1Pipeline?.stages?.find(s => s.name.toLowerCase().includes('demo') || s.name.toLowerCase().includes('meeting'))?.name;
+    if (demoStage) updates.stage_name = demoStage;
+    
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), updates);
+    setShowCalendlyConfirm(false);
+    setDemoDateTime('');
+    setExpandedTaskId(0); 
+    setUnlockedTasks([]);
+    setActiveTab('demos'); // Auto-switch to Demos tab to show them it moved!
+  };
+
   const toggleDemoBooked = async () => {
     if (!selectedLead || isLockedDown) return;
     const isCurrentlyBooked = selectedLead.is_demo_booked;
     
     let updates = { 
       is_demo_booked: !isCurrentlyBooked,
+      demo_date: !isCurrentlyBooked ? (selectedLead.demo_date || null) : null, // Clear the date if unchecking
       last_activity_at: serverTimestamp(),
       logs: arrayUnion({ 
         id: Date.now().toString(), 
         date: new Date().toISOString(), 
         type: 'System', 
-        text: isCurrentlyBooked ? 'Action Reversed: Removed Demo Booked Status' : 'Action Completed: Meeting Booked', 
+        text: isCurrentlyBooked ? 'Action Reversed: Removed Demo Booked Status' : 'Action Completed: Manual Demo Booked', 
         agent: user?.name || 'Agent' 
       })
     };
@@ -193,6 +249,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
     }
     
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), updates);
+    if (!isCurrentlyBooked) setActiveTab('demos'); 
   };
 
   const ejectToE2 = async () => {
@@ -210,18 +267,15 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
 
   // ==========================================
-  // BUG FIX: DYNAMIC ACTION QUEUE CALCULATION
+  // DYNAMIC ACTION QUEUE CALCULATION
   // ==========================================
   const isLeadActionableToday = (lead) => {
-      // 1. Is there an explicit Manual Save-Point set for today or earlier?
       const manualDate = safeDateStr(lead.next_follow_up);
       if (manualDate && manualDate <= today) return true;
 
-      // 2. Is it a high-priority system status?
       if (lead.engine === 1 && lead.stage_name === 'New Lead') return true;
       if (lead.temperature === 'Hot') return true;
 
-      // 3. The Smart Pipeline Reader: Let's calculate the real-time task due dates!
       if (!e1Pipeline || !e1Pipeline.stages) return false;
       const stage = e1Pipeline.stages.find(s => s.name === lead.stage_name);
       if (!stage) return false;
@@ -232,7 +286,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
       const completed = lead.completed_tasks || [];
       let firstUncompletedIdx = -1;
       
-      // Find the first task the agent hasn't done yet
       for (let i = 0; i < stageTasks.length; i++) {
           if (!completed.includes(`${stage.name}::${stageTasks[i].name}`)) {
               firstUncompletedIdx = i;
@@ -240,18 +293,15 @@ export default function DealRoomTab({ user, initialLeadId }) {
           }
       }
 
-      if (firstUncompletedIdx === -1) return false; // All tasks done in this stage!
+      if (firstUncompletedIdx === -1) return false; 
 
-      // Figure out when this specific uncompleted task is due
       const activeTask = stageTasks[firstUncompletedIdx];
       let baseDate = null;
 
       if (firstUncompletedIdx === 0) {
-          // If it's the very first task, calculate time from when they entered the stage
           const stageLog = [...(lead.logs || [])].reverse().find(l => l.text.includes(`Jumped to Pipeline Stage`));
           baseDate = stageLog ? new Date(stageLog.date) : new Date();
       } else {
-          // Calculate time from when they completed the previous task
           const prevTaskName = stageTasks[firstUncompletedIdx - 1].name;
           const prevLog = [...(lead.logs || [])].reverse().find(l => l.text.includes(`Completed Task: ${prevTaskName}`));
           baseDate = prevLog ? new Date(prevLog.date) : new Date();
@@ -267,7 +317,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
       const exactDueDate = new Date(baseDate.getTime() + delayMs);
       const dueStr = exactDueDate.toISOString().split('T')[0];
 
-      // If the calculated task date is today or in the past, it belongs in the Action Queue!
       return dueStr <= today;
   };
 
@@ -279,9 +328,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
       return assignedLower === userIdLower || assignedLower === userEmailLower;
   });
 
-  // Action Queue now uses the super-smart Dynamic Reader
-  const actionQueueLeads = myLeads.filter(l => isLeadActionableToday(l));
-
+  const actionQueueLeads = myLeads.filter(l => isLeadActionableToday(l) && !l.is_demo_booked); // Don't show in Action Queue if booked
   const demoLeads = myLeads.filter(l => l.is_demo_booked);
   
   let displayedLeads = [];
@@ -512,7 +559,18 @@ export default function DealRoomTab({ user, initialLeadId }) {
                 {!l.assigned_to && <div className="absolute top-0 left-0 w-1 h-full bg-emerald-400"></div>}
 
                 <div className="flex justify-between items-start mb-2"><h4 className="font-bold text-sm tracking-tight text-slate-900 leading-tight pr-2 truncate">{l.school_name}</h4>{l.temperature === 'Hot' && <Flame className="w-4 h-4 text-orange-500 fill-current shrink-0" />}</div>
-                {safeListDate && <div className={`text-[9px] font-black uppercase tracking-widest mb-2 flex items-center w-max px-2 py-0.5 rounded border ${safeListDate < today ? 'bg-red-50 text-red-600 border-red-200' : safeListDate === today ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}><Calendar className="w-3 h-3 mr-1" /> Due: {safeListDate}</div>}
+                
+                {l.is_demo_booked && l.demo_date && (
+                  <div className="text-[9px] font-black uppercase tracking-widest mb-2 flex items-center w-max px-2 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+                    <Calendar className="w-3 h-3 mr-1" /> {new Date(l.demo_date).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}
+                  </div>
+                )}
+                {!l.is_demo_booked && safeListDate && (
+                  <div className={`text-[9px] font-black uppercase tracking-widest mb-2 flex items-center w-max px-2 py-0.5 rounded border ${safeListDate < today ? 'bg-red-50 text-red-600 border-red-200' : safeListDate === today ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                    <Clock className="w-3 h-3 mr-1" /> Due: {safeListDate}
+                  </div>
+                )}
+                
                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100/50"><span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest truncate max-w-[120px] ${selectedLeadId === l.id ? 'bg-white text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{l.stage_name || 'New Lead'}</span><div className="text-[10px] font-black flex items-center text-indigo-600"><Star className="w-3 h-3 mr-1 fill-current" /> {l.score}</div></div>
               </div>
           )})}
@@ -523,10 +581,10 @@ export default function DealRoomTab({ user, initialLeadId }) {
         {!selectedLead ? (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-300 bg-slate-50"><Zap className="w-20 h-20 mb-6 opacity-20" /><h2 className="text-xl font-black uppercase tracking-widest text-slate-300">Select Target</h2></div>
         ) : (
-          <div className="flex flex-col h-full w-full animate-in fade-in duration-300">
+          <div className="flex flex-col h-full w-full animate-in fade-in duration-300 relative">
             
-            {/* Render Safely Extracted Date */}
-            {safeDateStr(selectedLead.next_follow_up) && safeDateStr(selectedLead.next_follow_up) <= today && (
+            {/* Render Safely Extracted Date (Only if NO demo booked) */}
+            {!selectedLead.is_demo_booked && safeDateStr(selectedLead.next_follow_up) && safeDateStr(selectedLead.next_follow_up) <= today && (
               <div className={`px-6 py-2.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-center shrink-0 shadow-sm z-20 ${safeDateStr(selectedLead.next_follow_up) < today ? 'bg-red-500 text-white' : 'bg-amber-400 text-amber-950'}`}><Clock className="w-4 h-4 mr-2" /> {safeDateStr(selectedLead.next_follow_up) < today ? `🚨 OVERDUE ACTION (Was due ${safeDateStr(selectedLead.next_follow_up)})` : '⚡ ACTION REQUIRED TODAY'}</div>
             )}
 
@@ -544,16 +602,36 @@ export default function DealRoomTab({ user, initialLeadId }) {
             )}
 
             {/* DEAL ROOM HEADER */}
-            <header className="p-6 border-b border-slate-100 flex justify-between items-center bg-white z-10 shadow-sm flex-wrap gap-4 shrink-0">
+            <header className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-start bg-white z-10 shadow-sm gap-4 shrink-0">
               <div>
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedLead.school_name}</h2>
-                <div className="flex flex-wrap items-center mt-2 gap-4 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                <div className="flex flex-wrap items-center mt-1.5 gap-4 text-xs font-bold text-slate-500 uppercase tracking-widest">
                   <p className="flex items-center"><User className="w-4 h-4 mr-1 text-indigo-500" /> {selectedLead.contact_name}</p>
                   <p className="flex items-center"><Phone className="w-4 h-4 mr-1 text-indigo-500" /> {selectedLead.phone}</p>
                 </div>
+                
+                {/* NEW: THE PINNED DEMO BADGE */}
+                {selectedLead.is_demo_booked && selectedLead.demo_date && (
+                  <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm">
+                    <Calendar className="w-3.5 h-3.5 mr-2" />
+                    Upcoming Demo: {new Date(selectedLead.demo_date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                  </div>
+                )}
               </div>
-              <div className="text-right flex gap-3">
-                <button disabled={isLockedDown} onClick={() => setShowVault(!showVault)} className="px-4 py-2.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 text-[10px] font-black rounded-lg uppercase tracking-widest shadow-sm transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+              
+              <div className="text-right flex gap-3 h-max">
+                <button 
+                  disabled={isLockedDown} 
+                  onClick={handleOpenCalendly} 
+                  className="px-4 py-2.5 bg-blue-600 text-white hover:bg-blue-700 text-[10px] font-black rounded-lg uppercase tracking-widest shadow-md transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Calendar className="w-4 h-4 mr-2" /> Book Demo
+                </button>
+                <button 
+                  disabled={isLockedDown} 
+                  onClick={() => setShowVault(!showVault)} 
+                  className="px-4 py-2.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 text-[10px] font-black rounded-lg uppercase tracking-widest shadow-sm transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   <BookOpen className="w-4 h-4 mr-2" /> Quick Vault Pivot
                 </button>
               </div>
@@ -764,6 +842,44 @@ export default function DealRoomTab({ user, initialLeadId }) {
                           );
                         })
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* CALENDLY DATE/TIME CONFIRMATION MODAL */}
+                {showCalendlyConfirm && (
+                  <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6 text-center border border-slate-200 relative">
+                      <button onClick={() => setShowCalendlyConfirm(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-1.5 rounded-lg transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                      
+                      <Calendar className="w-12 h-12 mx-auto text-blue-500 mb-4" />
+                      <h3 className="text-xl font-black text-slate-800 mb-2">Log the Demo</h3>
+                      <p className="text-sm font-medium text-slate-500 mb-6">If you successfully booked a time in the pop-up window, select that date and time below to pin it to this profile.</p>
+                      
+                      <div className="text-left mb-6">
+                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Agreed Demo Date & Time</label>
+                        <input 
+                          type="datetime-local" 
+                          value={demoDateTime}
+                          onChange={(e) => setDemoDateTime(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all cursor-pointer shadow-inner"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-3">
+                        <button 
+                          onClick={handleConfirmCalendlyBooking} 
+                          disabled={!demoDateTime}
+                          className="w-full px-5 py-3.5 bg-emerald-500 text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-md hover:bg-emerald-600 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2"/> Confirm Booking
+                        </button>
+                        <button onClick={() => setShowCalendlyConfirm(false)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-100 transition-colors">
+                          Cancel / Didn't Book
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

@@ -3,6 +3,7 @@ import {
   Target,
   GitMerge,
   Droplet,
+  Droplets,
   BookOpen,
   LogOut,
   Shield,
@@ -10,12 +11,15 @@ import {
   Lock,
   LayoutDashboard,
   Users,
-  Activity, // <-- Added Activity Icon
+  Activity,
+  FolderOpen,
+  Calendar // <-- Added Calendar Icon
 } from 'lucide-react';
 
 // ==========================================
 // 1. YOUR REAL COMPONENTS RECONNECTED!
 // ==========================================
+import E2CommandCenter from './components/E2CommandCenter';
 import ControlTower from './components/ControlTower';
 import AgentDashboard from './components/AgentDashboard';
 import LeadEngine from './components/LeadEngine';
@@ -23,7 +27,9 @@ import PipelineBuilder from './components/PipelineBuilder';
 import NurtureBuilder from './components/NurtureBuilder';
 import ScriptLibrary from './components/ScriptLibrary';
 import AdminAgents from './components/AdminAgents';
-import AgentAnalytics from './components/AgentAnalytics'; // <-- Added new Timesheet component
+import AgentAnalytics from './components/AgentAnalytics'; 
+import MediaVault from './components/MediaVault'; 
+import DemoSchedule from './components/DemoSchedule'; // <-- Imported Demo Schedule
 
 // ==========================================
 // 2. YOUR REAL FIREBASE RECONNECTED!
@@ -75,7 +81,7 @@ function LoginScreen({ onLogin }) {
         const isAdmin = firebaseUser.email.toLowerCase().includes('admin');
         onLogin({
           id: firebaseUser.uid,
-          name: firebaseUser.email.split('@')[0], // Uses the first part of their email as a name
+          name: firebaseUser.email.split('@')[0], 
           role: isAdmin ? 'admin' : 'staff',
           email: firebaseUser.email,
         });
@@ -174,8 +180,12 @@ export default function App() {
   // YOUR REAL COMPONENTS ARE PLUGGED BACK IN HERE
   const renderContent = () => {
     switch (activeTab) {
+      case 'e2-command-center':
+        return <E2CommandCenter />;  
       case 'control-tower':
         return <ControlTower />;
+      case 'demo-schedule': // <-- Added Route
+        return <DemoSchedule />;
       case 'agent-workspace':
         return <AgentDashboard user={user} />;
       case 'lead-engine':
@@ -186,9 +196,11 @@ export default function App() {
         return <NurtureBuilder />;
       case 'script-library':
         return <ScriptLibrary />;
+      case 'media-vault': 
+        return <MediaVault />;
       case 'admin-agents':
         return <AdminAgents />;
-      case 'agent-analytics': // <-- Added Route for Analytics
+      case 'agent-analytics':
         return <AgentAnalytics />;
       default:
         return <ControlTower />;
@@ -226,9 +238,24 @@ export default function App() {
                 Executive
               </p>
               <SidebarItem
+              icon={<Droplets />}
+              label="E2 Command Center"
+              id="e2-command-center"
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              />                     
+              <SidebarItem
                 icon={<LayoutDashboard />}
                 label="Control Tower"
                 id="control-tower"
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+              />
+              {/* Added Demo Schedule Sidebar Button */}
+              <SidebarItem
+                icon={<Calendar />}
+                label="Demo Schedule"
+                id="demo-schedule"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
@@ -281,13 +308,19 @@ export default function App() {
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
+                icon={<FolderOpen />}
+                label="Media Vault"
+                id="media-vault"
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+              />
+              <SidebarItem
                 icon={<UserCog />}
                 label="Agent Management"
                 id="admin-agents"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
-              {/* Added Activity & Timesheets Button */}
               <SidebarItem
                 icon={<Activity />}
                 label="Activity & Timesheets"
