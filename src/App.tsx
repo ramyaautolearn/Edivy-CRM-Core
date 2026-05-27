@@ -181,7 +181,7 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'e2-command-center':
-        return <E2CommandCenter />;  
+        return <E2CommandCenter user={user} />; 
       case 'control-tower':
         return <ControlTower />;
       case 'demo-schedule': // <-- Added Route

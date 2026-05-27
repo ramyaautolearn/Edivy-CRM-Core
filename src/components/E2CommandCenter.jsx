@@ -1,40 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Droplets, Flame, Send, User, Phone, CheckCircle, Clock, 
-  ArrowRight, Snowflake, AlertCircle, RefreshCw, Star, PlayCircle,
-  Search, Filter, FilterX, Inbox, Calendar, FileText, ChevronDown, ChevronUp, Trash2, Zap, PauseCircle
+import {
+  Shield, RefreshCw, MapPin, Star, Flame, Zap, User, Phone, Send, Inbox, Calendar,
+  FileText, CheckCircle, BookOpen, AlertCircle, PlayCircle, Trash2, Video,
+  MessageCircle, Clock, Circle, ChevronDown, ChevronUp, Snowflake, Lock, Unlock,
+  Link as LinkIcon, X, Droplets, Search, Filter, FilterX, ArrowRight
 } from 'lucide-react';
-import { collection, onSnapshot, doc, updateDoc, serverTimestamp, arrayUnion, getDoc } from 'firebase/firestore';
+import {
+  collection, onSnapshot, doc, updateDoc, serverTimestamp, arrayUnion, getDoc
+} from 'firebase/firestore';
 import { db } from '../firebase';
 
 export default function E2CommandCenter({ user }) {
+  // Core State
   const [e2Pipeline, setE2Pipeline] = useState(null);
   const [allLeads, setAllLeads] = useState([]);
   const [crmUsers, setCrmUsers] = useState([]);
+  const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Navigation & UI State
-  const [activeTab, setActiveTab] = useState('action_queue'); // 'action_queue', 'bank', 'resurrected'
-  const [expandedLeadId, setExpandedLeadId] = useState(null);
+  // Navigation State
+  const [activeTab, setActiveTab] = useState('action_queue'); 
+  
+  // Accordion Sidebar State
+  const [expandedStageId, setExpandedStageId] = useState(null);
 
-  // Bank Filters
+  // Note State
+  const [noteText, setNoteText] = useState('');
+  const [noteType, setNoteType] = useState('Internal Note');
+
+  // Filter State (For Bank)
   const [searchQuery, setSearchQuery] = useState('');
   const [filterOwner, setFilterOwner] = useState('all');
   const [filterStage, setFilterStage] = useState('all');
 
   const appId = 'edivy-crm-vault';
-  const todayStr = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    // 1. Fetch Users
+    if (!db) return;
+
     const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
         if (!snap.empty) setCrmUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        else onSnapshot(collection(db, 'users'), (rootSnap) => {
-            if (!rootSnap.empty) setCrmUsers(rootSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
     });
 
-    // 2. Fetch Pipeline
     const e2DocRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'e2_active');
     const unsubPipeline = onSnapshot(e2DocRef, (snap) => {
       if (snap.exists()) {
@@ -44,19 +52,19 @@ export default function E2CommandCenter({ user }) {
           const activeStages = (data.stages || []).filter(s => s.version_id === activeVersion.id).sort((a,b) => a.order - b.order);
           const activeActions = data.actions || [];
           setE2Pipeline({ version: activeVersion, stages: activeStages, actions: activeActions });
+          if (activeStages.length > 0) setExpandedStageId(activeStages[0].id);
         }
       }
     });
 
-    // 3. Fetch ALL Leads (to catch E2 leads AND resurrected E1 leads)
     const unsubLeads = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), (snap) => {
-      const fetchedLeads = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const fetchedLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       fetchedLeads.sort((a, b) => (b.score || 0) - (a.score || 0));
       setAllLeads(fetchedLeads);
       setLoading(false);
     });
 
-    return () => { unsubPipeline(); unsubLeads(); unsubUsers(); };
+    return () => { unsubUsers(); unsubPipeline(); unsubLeads(); };
   }, []);
 
   const safeDateStr = (dateVal) => {
@@ -66,16 +74,92 @@ export default function E2CommandCenter({ user }) {
     return '';
   };
 
-  // --- ACTIONS ---
+  const getNextActionForLead = (lead, stage) => {
+    if (!e2Pipeline || !stage) return null;
+    const stageActions = e2Pipeline.actions.filter(a => a.stage_id === stage.id).sort((a,b) => a.order - b.order);
+    const completed = lead.completed_e2_actions || [];
+    return stageActions.find(a => !completed.includes(a.id)) || null;
+  };
+
+  const getLastCompletedAction = (lead, stage) => {
+    if (!e2Pipeline || !stage) return null;
+    const stageActions = e2Pipeline.actions.filter(a => a.stage_id === stage.id).sort((a,b) => a.order - b.order);
+    const completed = lead.completed_e2_actions || [];
+    const completedInStage = stageActions.filter(a => completed.includes(a.id));
+    return completedInStage.length > 0 ? completedInStage[completedInStage.length - 1] : null;
+  };
+
+  const handleMarkComplete = async (lead, currentAction, nextAction) => {
+    let newDueDate = null;
+    
+    if (nextAction) {
+      const delayVal = nextAction.delay_value || 0;
+      const delayUnit = nextAction.delay_unit || 'days';
+      let delayMs = 0;
+      if (delayUnit === 'minutes') delayMs = delayVal * 60000;
+      if (delayUnit === 'hours') delayMs = delayVal * 3600000;
+      if (delayUnit === 'days') delayMs = delayVal * 86400000;
+      newDueDate = new Date(Date.now() + delayMs).toISOString().split('T')[0];
+    } else {
+      newDueDate = today;
+    }
+
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', lead.id), {
+      completed_e2_actions: arrayUnion(currentAction.id),
+      next_e2_due_date: newDueDate,
+      last_activity_at: serverTimestamp(),
+      logs: arrayUnion({
+         id: Date.now().toString(),
+         date: new Date().toISOString(),
+         type: 'System',
+         text: `✅ E2 Action Completed: [${currentAction.title}]`,
+         agent: user?.name || 'Agent'
+      })
+    });
+  };
+
+  const handleUndoAction = async (lead, actionToUndo) => {
+    if (!window.confirm(`Undo completion of "${actionToUndo.title}"? This will return it to your Action Queue.`)) return;
+    const newCompleted = (lead.completed_e2_actions || []).filter(id => id !== actionToUndo.id);
+    
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', lead.id), {
+      completed_e2_actions: newCompleted,
+      next_e2_due_date: today,
+      last_activity_at: serverTimestamp(),
+      logs: arrayUnion({
+         id: Date.now().toString(),
+         date: new Date().toISOString(),
+         type: 'System',
+         text: `↩️ Action Reversed: [${actionToUndo.title}] was marked uncompleted.`,
+         agent: user?.name || 'Agent'
+      })
+    });
+  };
+
+  const handleStageChange = async (leadId, newStageName) => {
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), {
+      stage_name: newStageName,
+      next_e2_due_date: today,
+      last_activity_at: serverTimestamp(),
+      logs: arrayUnion({ 
+        id: Date.now().toString(), 
+        date: new Date().toISOString(), 
+        type: 'System', 
+        text: `Moved to E2 Nurture Stage: ${newStageName}`, 
+        agent: user?.name || 'Agent' 
+      })
+    });
+  };
+
   const handleHandRaise = async (lead) => {
-    if (!window.confirm(`🔥 Resurrect ${lead.school_name}? This will move them back to Engine 1 (Active Sales).`)) return;
+    if (!window.confirm(`Resurrect ${lead.school_name}? This will beam them back to Engine 1 (Active Sales).`)) return;
     
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', lead.id), {
       engine: 1,
-      resurrected_from_e2: true, // Flags them for the Trophy Case tab!
       temperature: 'Hot',
       stage_name: 'New Lead', 
-      next_follow_up: todayStr, 
+      next_follow_up: today,
+      resurrected_from_e2: true,
       last_activity_at: serverTimestamp(),
       logs: arrayUnion({ 
         id: Date.now().toString(), 
@@ -85,80 +169,32 @@ export default function E2CommandCenter({ user }) {
         agent: user?.name || 'Agent' 
       })
     });
+    setSelectedLeadId(null);
   };
 
-  const handleExecuteDrop = async (lead, action) => {
-    let script = (action.resource_text || '').replace(/{contact_name}/g, lead.contact_name || 'there');
-    const cleanPhone = (lead.phone || '').replace(/\D/g, '');
-
-    if (!script) {
-        alert("This action has no script attached!");
-        return;
-    }
-
-    try { await navigator.clipboard.writeText(script); } catch (err) {}
+  const handleOpenWhatsApp = async (lead, script) => {
+    let textToCopy = (script || '').replace(/{contact_name}/g, lead.contact_name || 'there');
+    const cleanPhone = (lead.phone || '').replace(/\D/g, ''); 
+    try { await navigator.clipboard.writeText(textToCopy); } catch (err) { }
     window.open(`https://wa.me/${cleanPhone}`, '_blank');
-
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', lead.id), {
-      completed_e2_actions: arrayUnion(action.id),
-      last_activity_at: serverTimestamp(),
-      logs: arrayUnion({ 
-        id: Date.now().toString(), 
-        date: new Date().toISOString(), 
-        type: 'WhatsApp', 
-        text: `E2 Drop Executed: [${action.title}]`, 
-        agent: user?.name || 'Agent' 
-      })
-    });
   };
 
-  const handleStageChange = async (leadId, newStageName) => {
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), {
-      stage_name: newStageName,
-      last_activity_at: serverTimestamp(),
-      logs: arrayUnion({ 
-        id: Date.now().toString(), 
-        date: new Date().toISOString(), 
-        type: 'System', 
-        text: `Moved to E2 Stage: ${newStageName}`, 
-        agent: user?.name || 'Agent' 
-      })
-    });
+  const handleAddNote = async (e) => {
+    e.preventDefault();
+    if (!noteText.trim() || !selectedLeadId) return;
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLeadId), {
+        logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: noteType, text: noteText, agent: user?.name || 'Agent' }),
+        last_activity_at: serverTimestamp()
+      });
+      setNoteText(''); setNoteType('Internal Note');
+    } catch (err) {}
   };
 
-  const handleAdvanceStage = async (lead) => {
-    const stages = e2Pipeline?.stages || [];
-    if (stages.length === 0) return;
-    
-    let currentIdx = stages.findIndex(s => s.name === lead.stage_name);
-    if (currentIdx === -1) {
-        // Fix: If unmapped, advance to Stage 1!
-        handleStageChange(lead.id, stages[0].name);
-    } else if (currentIdx < stages.length - 1) {
-        handleStageChange(lead.id, stages[currentIdx + 1].name);
-    } else {
-        alert("This lead has completed the final Engine 2 stage!");
-    }
-  };
-
-  const handleSetFollowUp = async (leadId, dateStr) => {
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { 
-      next_follow_up: dateStr || null, 
-      last_activity_at: serverTimestamp(),
-      logs: arrayUnion({ 
-        id: Date.now().toString(), 
-        date: new Date().toISOString(), 
-        type: 'System', 
-        text: dateStr ? `Tactical Pause Applied: System will wait until ${dateStr}` : `Tactical Pause Removed.`, 
-        agent: user?.name || 'Agent' 
-      })
-    });
-  };
-
-  const handleDeleteLog = async (leadId, logIdToRemove) => {
+  const handleDeleteLog = async (logIdToRemove) => {
     if (!window.confirm("Delete this log?")) return;
     try {
-      const leadRef = doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId);
+      const leadRef = doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLeadId);
       const docSnap = await getDoc(leadRef);
       if (docSnap.exists()) {
         const updatedLogs = (docSnap.data().logs || []).filter(log => log.id !== logIdToRemove);
@@ -167,442 +203,348 @@ export default function E2CommandCenter({ user }) {
     } catch (err) {}
   };
 
-  // --- ENGINE 2 DYNAMIC QUEUE MATH ---
-  const getActionDetails = (lead) => {
-    if (!e2Pipeline || !e2Pipeline.stages) return { action: null, isUnmapped: true };
-    const stage = e2Pipeline.stages.find(s => s.name === lead.stage_name);
-    if (!stage) return { action: null, isUnmapped: true };
-
-    const stageActions = (e2Pipeline.actions || []).filter(a => a.stage_id === stage.id).sort((a,b) => a.order - b.order);
-    const completed = lead.completed_e2_actions || [];
-    
-    let nextIdx = stageActions.findIndex(a => !completed.includes(a.id));
-    if (nextIdx === -1) return { action: null, isComplete: true };
-
-    const nextAction = stageActions[nextIdx];
-    let baseDate = new Date();
-
-    // Find when the timer started
-    if (nextIdx === 0) {
-        const log = [...(lead.logs || [])].reverse().find(l => l.text.includes(`Moved to E2 Stage: ${stage.name}`) || l.text.includes('Ejected Lead to Engine 2'));
-        if (log) baseDate = new Date(log.date);
-    } else {
-        const prevAction = stageActions[nextIdx - 1];
-        const log = [...(lead.logs || [])].reverse().find(l => l.text.includes(`[${prevAction.title}]`));
-        if (log) baseDate = new Date(log.date);
-    }
-
-    let delayMs = 0;
-    if (nextAction.delay_value) {
-        if (nextAction.delay_unit === 'minutes') delayMs = nextAction.delay_value * 60000;
-        else if (nextAction.delay_unit === 'hours') delayMs = nextAction.delay_value * 3600000;
-        else if (nextAction.delay_unit === 'days') delayMs = nextAction.delay_value * 86400000;
-    }
-
-    const exactDueDate = new Date(baseDate.getTime() + delayMs);
-    const now = new Date();
-    const isTimerExpired = exactDueDate <= now;
-    
-    let timeString = '';
-    if (isTimerExpired) {
-        timeString = 'Due Now';
-    } else {
-        const diffDays = Math.ceil((exactDueDate - now) / 86400000);
-        timeString = diffDays > 1 ? `Waiting: ${diffDays} days` : `Waiting: < 24h`;
-    }
-
-    return { action: nextAction, exactDueDate, isTimerExpired, timeString };
-  };
-
-  const isLeadActionable = (lead, details) => {
-    const manualDate = safeDateStr(lead.next_follow_up);
-    
-    // 1. Summer Break (Hard Pause) Check
-    if (manualDate && manualDate > todayStr) return false; 
-    
-    // 2. Pause Expired Check
-    if (manualDate && manualDate <= todayStr) return true; 
-
-    // 3. Unmapped leads always need attention
-    if (details.isUnmapped) return true;
-
-    // 4. No more actions? Not actionable.
-    if (!details.action) return false;
-
-    // 5. Timer expired? Actionable!
-    return details.isTimerExpired;
-  };
-
-
-  if (loading) return <div className="flex h-full items-center justify-center bg-slate-50"><RefreshCw className="w-8 h-8 animate-spin text-blue-300" /></div>;
-  if (!e2Pipeline) return <div className="p-10 text-center text-slate-500 font-bold bg-slate-50 min-h-screen">No Active E2 Pipeline Found. Please publish a version in the Nurture Builder!</div>;
-
-  // --- DATA PARSING ---
   const e2Leads = allLeads.filter(l => l.engine === 2);
-  const resurrectedLeads = allLeads.filter(l => l.engine === 1 && l.resurrected_from_e2);
+  const resurrectedLeads = allLeads.filter(l => l.resurrected_from_e2 === true);
 
-  // My Leads Check
-  const myE2Leads = e2Leads.filter(l => {
-      const aTo = String(l.assigned_to || '').toLowerCase();
-      return aTo === String(user?.id || '').toLowerCase() || aTo === String(user?.email || '').toLowerCase();
+  const actionableLeads = e2Leads.filter(l => {
+    const dueStr = safeDateStr(l.next_e2_due_date) || today;
+    return dueStr === today;
   });
 
-  // Action Queue Tab
-  const actionableLeads = (user?.role === 'admin' ? e2Leads : myE2Leads).filter(l => isLeadActionable(l, getActionDetails(l)));
+  const overdueLeads = e2Leads.filter(l => {
+    const dueStr = safeDateStr(l.next_e2_due_date);
+    return dueStr && dueStr < today;
+  });
 
-  // E2 Bank Tab (Applying Filters)
-  const bankLeads = e2Leads.filter(l => {
+  let displayedBankLeads = e2Leads.filter(l => {
     if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!(l.school_name || '').toLowerCase().includes(q) && !(l.contact_name || '').toLowerCase().includes(q)) return false;
     }
-    if (filterOwner === 'unassigned') { if (l.assigned_to) return false; }
-    else if (filterOwner === 'me') { 
+    if (filterOwner === 'me') {
+        const myId = String(user?.id || '').toLowerCase();
         const aTo = String(l.assigned_to || '').toLowerCase();
-        if (aTo !== String(user?.id || '').toLowerCase() && aTo !== String(user?.email || '').toLowerCase()) return false; 
+        if (aTo !== myId && aTo !== String(user?.email || '').toLowerCase()) return false;
+    } else if (filterOwner !== 'all') {
+        if (l.assigned_to !== filterOwner) return false;
     }
-    else if (filterOwner !== 'all') { if (l.assigned_to !== filterOwner) return false; }
-    
-    if (filterStage !== 'all') {
-        const lStage = l.stage_name || 'Unmapped';
-        if (lStage !== filterStage) return false;
-    }
+    if (filterStage !== 'all' && l.stage_name !== filterStage) return false;
     return true;
   });
 
-  // Group Bank Leads by Stage
-  const groupedBankLeads = {};
-  e2Pipeline.stages.forEach(s => groupedBankLeads[s.name] = []);
-  const unmappedBankLeads = [];
-  bankLeads.forEach(l => {
-    if (groupedBankLeads[l.stage_name]) groupedBankLeads[l.stage_name].push(l);
-    else unmappedBankLeads.push(l);
+  const activeAssignedIds = [...new Set(e2Leads.map(l => l.assigned_to).filter(Boolean))];
+  const dropdownUsers = activeAssignedIds.map(id => {
+      const crmU = crmUsers.find(u => String(u.id) === String(id) || String(u.email) === String(id));
+      let displayName = `Agent: ${String(id).substring(0, 6)}...`;
+      if (crmU) displayName = crmU.badge_id ? `[${crmU.badge_id}] ${crmU.name || crmU.email}` : (crmU.name || crmU.email);
+      return { id, display: displayName };
   });
 
-  // Helpers for UI
   const getLogIcon = (type) => {
     if (type === 'WhatsApp') return <MessageCircle className="w-3 h-3 text-emerald-500" />;
+    if (type === 'Call') return <Phone className="w-3 h-3 text-blue-500" />;
+    if (type === 'Meeting') return <Video className="w-3 h-3 text-purple-500" />;
     if (type === 'System') return <Zap className="w-3 h-3 text-amber-500" />;
     return <FileText className="w-3 h-3 text-slate-400" />;
   };
 
-  const activeAssignedIds = [...new Set(e2Leads.map(l => l.assigned_to).filter(Boolean))];
-  const crmUserIds = crmUsers.map(u => u.id);
-  const colleagueIds = [...new Set([...activeAssignedIds, ...crmUserIds])].filter(id => id !== user?.id && id !== user?.email && id !== user?.name);
+  const selectedLead = allLeads.find((l) => l.id === selectedLeadId);
+  const currentStage = selectedLead ? (e2Pipeline?.stages || []).find(s => s.name === selectedLead.stage_name) : null;
+  const activeTask = selectedLead ? getNextActionForLead(selectedLead, currentStage) : null;
+  const lastCompletedTask = selectedLead ? getLastCompletedAction(selectedLead, currentStage) : null;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto min-h-screen bg-slate-50">
+    <div className="flex h-full bg-slate-50 overflow-hidden font-sans text-slate-800 relative w-full border border-slate-200 rounded-2xl shadow-xl">
       
-      {/* HEADER & TABS */}
-      <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-8 flex flex-col md:flex-row justify-between md:items-end gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-slate-900 flex items-center tracking-tight">
-            <Droplets className="w-8 h-8 mr-3 text-blue-500" /> E2 Command Center
-          </h1>
-          <p className="text-sm font-bold text-slate-500 mt-2 uppercase tracking-widest flex items-center">
-            <Snowflake className="w-4 h-4 mr-1 text-blue-300" /> Waking up cold leads automatically
-          </p>
+      <aside className="w-[340px] bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 h-full">
+        <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-col gap-1.5 shrink-0">
+          <button onClick={() => { setActiveTab('action_queue'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'action_queue' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Zap className="w-3.5 h-3.5 mr-2"/> Actionable Today</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='action_queue'?'bg-white/20':'bg-slate-800'}`}>{actionableLeads.length}</span></button>
+          <button onClick={() => { setActiveTab('overdue'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'overdue' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><AlertCircle className="w-3.5 h-3.5 mr-2"/> Overdue Drops</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='overdue'?'bg-white/20':'bg-slate-800'}`}>{overdueLeads.length}</span></button>
+          <button onClick={() => { setActiveTab('bank'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'bank' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Inbox className="w-3.5 h-3.5 mr-2"/> The E2 Bank</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='bank'?'bg-white/20':'bg-slate-800'}`}>{e2Leads.length}</span></button>
+          <button onClick={() => { setActiveTab('resurrected'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'resurrected' ? 'bg-orange-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Flame className="w-3.5 h-3.5 mr-2"/> Hand-Raisers</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='resurrected'?'bg-white/20':'bg-slate-800'}`}>{resurrectedLeads.length}</span></button>
         </div>
-        
-        <div className="flex bg-slate-100 p-1.5 rounded-xl self-start md:self-auto overflow-x-auto">
-          <button onClick={() => setActiveTab('action_queue')} className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center whitespace-nowrap ${activeTab === 'action_queue' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            ⚡ Actionable Today ({actionableLeads.length})
-          </button>
-          <button onClick={() => setActiveTab('bank')} className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center whitespace-nowrap ${activeTab === 'bank' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            🧊 The E2 Bank ({e2Leads.length})
-          </button>
-          <button onClick={() => setActiveTab('resurrected')} className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center whitespace-nowrap ${activeTab === 'resurrected' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            🔥 Hand-Raisers ({resurrectedLeads.length})
-          </button>
-        </div>
-      </div>
 
-      {/* --- TAB 1: ACTION QUEUE --- */}
-      {activeTab === 'action_queue' && (
-        <div className="space-y-4">
-          <div className="mb-6 border-l-4 border-blue-500 pl-4">
-            <h2 className="text-lg font-black text-slate-800">Your Action Queue</h2>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Leads whose timers have expired. Clear the list and go home.</p>
-          </div>
-          
-          {actionableLeads.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-20 text-center shadow-sm">
-              <CheckCircle className="w-12 h-12 text-emerald-300 mx-auto mb-4" />
-              <h3 className="text-lg font-black text-emerald-600 uppercase tracking-widest">Inbox Zero</h3>
-              <p className="text-sm font-medium text-slate-500 mt-2">All timers are running. No E2 actions required today.</p>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              {actionableLeads.map((lead, i) => (
-                <ExpandableLeadRow 
-                  key={lead.id} 
-                  lead={lead} 
-                  stages={e2Pipeline.stages}
-                  details={getActionDetails(lead)}
-                  onHandRaise={handleHandRaise}
-                  onExecuteDrop={handleExecuteDrop}
-                  onStageChange={handleStageChange}
-                  onAdvanceStage={handleAdvanceStage}
-                  onSetFollowUp={handleSetFollowUp}
-                  onDeleteLog={handleDeleteLog}
-                  isLast={i === actionableLeads.length - 1}
-                  todayStr={todayStr}
-                  safeDateStr={safeDateStr}
-                  getLogIcon={getLogIcon}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* --- TAB 2: THE E2 BANK --- */}
-      {activeTab === 'bank' && (
-        <div className="space-y-6">
-          {/* Filters */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4">
-              <div className="relative flex-1">
-                  <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-                  <input type="text" placeholder="Search school, contact..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-10 pr-4 py-2.5 text-xs font-bold text-slate-700 outline-none focus:border-blue-400 transition-colors" />
-              </div>
-              <div className="flex gap-4">
-                  <select value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} className="w-48 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-[10px] font-black text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
-                      <option value="all">Any Owner</option>
-                      <option value="unassigned">Unassigned (Shark Tank)</option>
-                      {user?.id && <option value="me">My Cold Leads</option>}
-                      {colleagueIds.map(id => <option key={id} value={id}>Agent: {id.substring(0, 6)}...</option>)}
-                  </select>
-                  <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="w-48 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-[10px] font-black text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
-                      <option value="all">Any Stage</option>
-                      <option value="Unmapped">Unmapped</option>
-                      {e2Pipeline.stages.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                  </select>
-                  {(searchQuery || filterOwner !== 'all' || filterStage !== 'all') && (
-                      <button onClick={() => { setSearchQuery(''); setFilterOwner('all'); setFilterStage('all'); }} className="bg-red-50 text-red-600 hover:bg-red-100 px-3 rounded-lg flex items-center justify-center transition-colors shadow-sm" title="Clear Filters">
-                          <FilterX className="w-4 h-4" />
-                      </button>
-                  )}
-              </div>
-          </div>
-
-          {/* Grouped by Stage */}
-          {unmappedBankLeads.length > 0 && (
-            <div className="mb-8">
-              <h3 className="text-[11px] font-black text-amber-700 uppercase tracking-widest mb-3 flex items-center ml-2 bg-amber-100 w-max px-3 py-1.5 rounded-lg border border-amber-200">
-                <AlertCircle className="w-3.5 h-3.5 mr-1.5" /> Stage: Unmapped <span className="ml-2 bg-white px-2 py-0.5 rounded text-amber-600 shadow-sm">{unmappedBankLeads.length}</span>
-              </h3>
-              <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
-                {unmappedBankLeads.map((lead, i) => (
-                  <ExpandableLeadRow 
-                    key={lead.id} lead={lead} stages={e2Pipeline.stages} details={getActionDetails(lead)} onHandRaise={handleHandRaise} onExecuteDrop={handleExecuteDrop} onStageChange={handleStageChange} onAdvanceStage={handleAdvanceStage} onSetFollowUp={handleSetFollowUp} onDeleteLog={handleDeleteLog} isLast={i === unmappedBankLeads.length - 1} todayStr={todayStr} safeDateStr={safeDateStr} getLogIcon={getLogIcon}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {e2Pipeline.stages.map((stage, idx) => {
-            const leadsInStage = groupedBankLeads[stage.name];
-            if (leadsInStage.length === 0) return null;
-            return (
-              <div key={stage.id} className="relative">
-                <h3 className="text-[11px] font-black text-blue-900 uppercase tracking-widest mb-3 flex items-center ml-2 bg-blue-100/50 w-max px-3 py-1.5 rounded-lg border border-blue-200">
-                  Stage {idx + 1}: {stage.name} <span className="ml-2 bg-white px-2 py-0.5 rounded text-blue-600 shadow-sm">{leadsInStage.length}</span>
-                </h3>
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  {leadsInStage.map((lead, i) => (
-                    <ExpandableLeadRow 
-                      key={lead.id} lead={lead} stages={e2Pipeline.stages} details={getActionDetails(lead)} onHandRaise={handleHandRaise} onExecuteDrop={handleExecuteDrop} onStageChange={handleStageChange} onAdvanceStage={handleAdvanceStage} onSetFollowUp={handleSetFollowUp} onDeleteLog={handleDeleteLog} isLast={i === leadsInStage.length - 1} todayStr={todayStr} safeDateStr={safeDateStr} getLogIcon={getLogIcon}
-                    />
-                  ))}
+        {activeTab === 'bank' && (
+            <div className="p-3 bg-white border-b border-slate-200 shrink-0 shadow-sm flex flex-col gap-2">
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                        <input type="text" placeholder="Search cold leads..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-[10px] font-bold text-slate-700 outline-none focus:border-blue-400" />
+                    </div>
                 </div>
-              </div>
-            );
-          })}
-          {bankLeads.length === 0 && <div className="text-center py-20 text-slate-400 font-bold uppercase tracking-widest text-xs">No leads match these filters.</div>}
-        </div>
-      )}
-
-      {/* --- TAB 3: RESURRECTED (TROPHY CASE) --- */}
-      {activeTab === 'resurrected' && (
-        <div className="space-y-4">
-          <div className="mb-6 border-l-4 border-orange-500 pl-4">
-            <h2 className="text-lg font-black text-slate-800">The Trophy Case</h2>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Leads that E2 successfully revived and pushed back to E1.</p>
-          </div>
-          
-          {resurrectedLeads.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-20 text-center shadow-sm">
-              <Inbox className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-              <h3 className="text-lg font-black text-slate-400 uppercase tracking-widest">No Resurrections Yet</h3>
-              <p className="text-sm font-medium text-slate-500 mt-2">Let the Nurture sequence run. The hand-raisers will appear here.</p>
+                <div className="grid grid-cols-2 gap-2">
+                    <select value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer truncate">
+                        <option value="all">All Agents</option>
+                        {user?.id && <option value="me">My Leads</option>}
+                        {dropdownUsers.map(u => <option key={u.id} value={u.id}>{u.display}</option>)}
+                    </select>
+                    <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
+                        <option value="all">All Stages</option>
+                        {e2Pipeline?.stages?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    </select>
+                </div>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {resurrectedLeads.map(lead => (
-                <div key={lead.id} className="bg-white border-2 border-orange-200 rounded-xl p-5 shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-red-500"></div>
+        )}
+
+        <div className="flex-1 overflow-y-auto bg-slate-50/50">
+          {loading || !e2Pipeline ? <div className="p-12 text-center"><RefreshCw className="w-6 h-6 animate-spin mx-auto text-slate-300" /></div> : 
+          
+          (activeTab === 'action_queue' || activeTab === 'overdue') ? (
+            <div className="p-2 space-y-2">
+              {e2Pipeline.stages.map((stage, idx) => {
+                const targetLeads = activeTab === 'action_queue' ? actionableLeads : overdueLeads;
+                const leadsInStage = targetLeads.filter(l => l.stage_name === stage.name);
+                if (leadsInStage.length === 0) return null;
+                return (
+                  <div key={stage.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <button onClick={() => setExpandedStageId(expandedStageId === stage.id ? null : stage.id)} className="w-full p-3 bg-slate-100/50 hover:bg-slate-100 flex justify-between items-center text-left">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-900 truncate">S{idx+1}: {stage.name}</span>
+                      <span className="bg-blue-100 text-blue-700 text-[9px] font-black px-2 py-0.5 rounded ml-2">{leadsInStage.length}</span>
+                    </button>
+                    {expandedStageId === stage.id && (
+                      <div className="p-2 bg-slate-50/50 border-t border-slate-100 space-y-2">
+                        {leadsInStage.map(l => (
+                          <div key={l.id} onClick={() => setSelectedLeadId(l.id)} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${ selectedLeadId === l.id ? 'bg-blue-50 border-blue-400 shadow-sm' : 'bg-white border-slate-100 hover:border-blue-200' }`}>
+                            <h4 className="font-black text-xs tracking-tight text-slate-900 truncate">{l.school_name}</h4>
+                            <div className="text-[9px] font-bold text-slate-500 mt-1 uppercase tracking-widest flex items-center">
+                                <Clock className={`w-3 h-3 mr-1 ${activeTab === 'overdue' ? 'text-red-500' : 'text-blue-500'}`} /> 
+                                {activeTab === 'overdue' ? `Overdue (${safeDateStr(l.next_e2_due_date)})` : 'Due Today'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {((activeTab === 'action_queue' ? actionableLeads : overdueLeads).length === 0) && <div className="p-10 text-center text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em]">Queue is Empty</div>}
+            </div>
+          ) : 
+          (
+            <div className="p-3 space-y-3">
+              {(activeTab === 'bank' ? displayedBankLeads : resurrectedLeads).map((l) => (
+                <div key={l.id} onClick={() => setSelectedLeadId(l.id)} className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${ selectedLeadId === l.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'bg-white border-slate-100 hover:border-blue-200' }`}>
                   <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-black text-slate-900">{lead.school_name}</h4>
-                    <Flame className="w-5 h-5 text-orange-500 fill-current" />
+                    <h4 className="font-bold text-sm tracking-tight text-slate-900 truncate pr-2">{l.school_name}</h4>
+                    {activeTab === 'resurrected' && <Flame className="w-4 h-4 text-orange-500 fill-current shrink-0" />}
                   </div>
-                  <div className="text-xs font-bold text-slate-500 mb-4">{lead.contact_name}</div>
-                  <div className="bg-orange-50 text-orange-800 text-[10px] font-black uppercase tracking-widest p-2 rounded-lg border border-orange-100 flex items-center justify-center">
-                    Currently in E1 • {lead.stage_name}
+                  {activeTab === 'bank' && safeDateStr(l.next_e2_due_date) > today && (
+                    <div className="text-[9px] font-black uppercase tracking-widest mb-2 flex items-center w-max px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                      <Clock className="w-3 h-3 mr-1" /> Wakes up: {safeDateStr(l.next_e2_due_date)}
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-100/50">
+                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest bg-slate-100 text-slate-600 truncate max-w-[150px]">
+                      {l.stage_name || 'E2 Entry'}
+                    </span>
                   </div>
                 </div>
               ))}
+              {(activeTab === 'bank' ? displayedBankLeads : resurrectedLeads).length === 0 && <div className="p-10 text-center text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em]">No Leads Found</div>}
             </div>
           )}
         </div>
-      )}
+      </aside>
 
-    </div>
-  );
-}
-
-
-// --- EXPANDABLE ROW COMPONENT ---
-function ExpandableLeadRow({ 
-  lead, stages, details, 
-  onHandRaise, onExecuteDrop, onStageChange, onAdvanceStage, onSetFollowUp, onDeleteLog,
-  isLast, todayStr, safeDateStr, getLogIcon
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const manualPauseDate = safeDateStr(lead.next_follow_up);
-  const isHardPaused = manualPauseDate && manualPauseDate > todayStr;
-  const isPauseExpired = manualPauseDate && manualPauseDate <= todayStr;
-
-  return (
-    <div className={`flex flex-col transition-colors ${!isLast ? 'border-b border-slate-100' : ''} ${expanded ? 'bg-slate-50/50' : 'hover:bg-slate-50'}`}>
-      
-      {/* ROW HEADER (Always Visible) */}
-      <div className="p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 cursor-pointer" onClick={() => setExpanded(!expanded)}>
-        
-        {/* 1. Lead Info */}
-        <div className="xl:w-1/4 flex items-center">
-          <button className="mr-3 text-slate-400 hover:text-blue-600 transition-colors">
-            {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-                <h4 className="font-black text-slate-900 text-base tracking-tight truncate">{lead.school_name}</h4>
-                {isPauseExpired && <span className="bg-red-100 text-red-700 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest border border-red-200">Pause Expired</span>}
-            </div>
-            <div className="flex flex-wrap gap-3 mt-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              <span className="flex items-center"><User className="w-3 h-3 mr-1 text-slate-400" /> {lead.contact_name || 'N/A'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 2. Pipeline Stage Control */}
-        <div className="xl:w-1/5" onClick={e => e.stopPropagation()}>
-          <select 
-            value={lead.stage_name || ''} 
-            onChange={(e) => onStageChange(lead.id, e.target.value)}
-            className={`w-full text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-2 outline-none cursor-pointer transition-colors border ${details.isUnmapped ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 border-slate-200 text-slate-700 focus:border-blue-400'}`}
-          >
-            <option value="" disabled>AWAITING STAGE MAPPING</option>
-            {stages.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-          </select>
-        </div>
-
-        {/* 3. Action Block */}
-        <div className="xl:w-1/3 bg-white rounded-xl p-2.5 border border-slate-200 shadow-sm flex justify-between items-center" onClick={e => e.stopPropagation()}>
-          {isHardPaused ? (
-            <div className="flex-1 mr-4 text-purple-600 flex items-center text-[10px] font-black uppercase tracking-widest">
-              <PauseCircle className="w-4 h-4 mr-2" /> Summer Break (Paused to {manualPauseDate})
-            </div>
-          ) : details.isUnmapped ? (
-            <div className="flex-1 mr-4 text-amber-600 flex items-center text-[10px] font-black uppercase tracking-widest">
-              <AlertCircle className="w-4 h-4 mr-2" /> Needs Stage Assignment
-            </div>
-          ) : details.action ? (
-            <div className="flex-1 mr-4 overflow-hidden">
-              <div className={`text-[9px] font-black uppercase tracking-widest mb-1 flex items-center ${details.isTimerExpired ? 'text-red-600' : 'text-blue-500'}`}>
-                <Clock className="w-3 h-3 mr-1" /> {details.timeString}
+      <div className="flex-1 flex flex-col relative overflow-hidden min-w-0 bg-white h-full">
+        {!selectedLead ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-300 bg-slate-50"><Droplets className="w-20 h-20 mb-6 opacity-20" /><h2 className="text-xl font-black uppercase tracking-widest text-slate-300">Select E2 Target</h2></div>
+        ) : (
+          <div className="flex flex-col h-full w-full animate-in fade-in duration-300">
+            
+            <header className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-start bg-white z-10 shadow-sm gap-4 shrink-0">
+              <div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedLead.school_name}</h2>
+                  <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${selectedLead.engine === 1 ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
+                    {selectedLead.engine === 1 ? '🔥 E1 Active' : '❄️ E2 Nurture'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center mt-2 gap-4 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                  <p className="flex items-center"><User className="w-4 h-4 mr-1 text-blue-500" /> {selectedLead.contact_name}</p>
+                  <p className="flex items-center"><Phone className="w-4 h-4 mr-1 text-blue-500" /> {selectedLead.phone}</p>
+                </div>
               </div>
-              <div className="text-[11px] font-bold text-slate-700 truncate">{details.action.title}</div>
-            </div>
-          ) : (
-            <div className="flex-1 mr-4 text-emerald-600 flex items-center text-[10px] font-black uppercase tracking-widest">
-              <CheckCircle className="w-4 h-4 mr-2" /> Stage Complete
-            </div>
-          )}
+              
+              <div className="text-right flex gap-3">
+                {selectedLead.engine === 2 && (
+                  <button onClick={() => handleHandRaise(selectedLead)} className="px-6 py-3 bg-orange-50 hover:bg-orange-500 hover:text-white text-orange-600 border border-orange-200 text-[10px] font-black rounded-xl uppercase tracking-widest shadow-sm transition-all flex items-center group">
+                    <Flame className="w-4 h-4 mr-2 group-hover:fill-current" /> Hand Raise (Push to E1)
+                  </button>
+                )}
+              </div>
+            </header>
 
-          {!isHardPaused && (
-             details.isUnmapped || (!details.action && !details.isUnmapped) ? (
-              <button onClick={() => onAdvanceStage(lead)} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors flex items-center shrink-0">
-                Advance <ArrowRight className="w-3 h-3 ml-1" />
-              </button>
-            ) : details.action ? (
-              <button onClick={() => onExecuteDrop(lead, details.action)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors shadow-sm flex items-center shrink-0">
-                <Send className="w-3.5 h-3.5 mr-1.5" /> Execute
-              </button>
-            ) : null
-          )}
-        </div>
+            <div className="flex-1 p-6 bg-slate-50 overflow-y-auto">
+              <div className="max-w-4xl mx-auto space-y-6">
 
-        {/* 4. Resurrection (Hand Raise) */}
-        <div className="xl:w-[12%] flex justify-end" onClick={e => e.stopPropagation()}>
-          <button onClick={() => onHandRaise(lead)} className="w-full bg-orange-50 hover:bg-orange-500 hover:text-white border border-orange-200 text-orange-600 px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center justify-center group" title="Resurrect to E1">
-            <Flame className="w-4 h-4 mr-1.5 group-hover:fill-current" /> Revive
-          </button>
-        </div>
+                {selectedLead.engine === 2 && (
+                  <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200">
+                    <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                      <h3 className="text-[10px] font-black text-blue-800 uppercase tracking-widest flex items-center">
+                        <PlayCircle className="w-4 h-4 mr-2 text-blue-500" /> Drop Execution Protocol
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Current Stage:</span>
+                        <select 
+                          value={selectedLead.stage_name || ''} 
+                          onChange={(e) => handleStageChange(selectedLead.id, e.target.value)}
+                          className="bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:border-blue-400 transition-colors"
+                        >
+                          <option value="" disabled>Select Stage...</option>
+                          {e2Pipeline?.stages?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {!currentStage ? (
+                       <div className="bg-amber-50 border border-amber-200 p-6 rounded-2xl text-center">
+                         <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+                         <h4 className="text-sm font-black text-amber-800 uppercase tracking-widest">Lead is Unmapped</h4>
+                         <p className="text-xs font-medium text-amber-600 mt-2">Select a stage from the dropdown above to initialize the nurture sequence.</p>
+                       </div>
+                    ) : activeTask ? (
+                      <div className="space-y-6">
+                        <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-start gap-4">
+                          <div className="bg-white border border-slate-200 w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-sm text-blue-600 font-black">
+                            {e2Pipeline.actions.filter(a => a.stage_id === currentStage.id).findIndex(a => a.id === activeTask.id) + 1}
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="text-sm font-black text-slate-800 tracking-tight">{activeTask.title}</h4>
+                            <p className="text-xs font-medium text-slate-500 mt-1">{activeTask.description}</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-blue-50/30 p-5 rounded-2xl border border-blue-100">
+                          <div>
+                             <label className="block text-[9px] font-black uppercase tracking-widest text-purple-500 mb-2">AI Guidance / Strategy</label>
+                             <div className="bg-purple-50/50 p-4 rounded-xl text-sm font-medium text-purple-900 border border-purple-100 shadow-inner min-h-[120px]">
+                               {activeTask.ai_guidance || 'No guidance provided.'}
+                             </div>
+                          </div>
+                          <div>
+                             <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Approved WhatsApp Script</label>
+                             <div className="bg-white p-4 rounded-xl text-sm font-medium text-slate-700 border border-slate-200 shadow-inner min-h-[120px] whitespace-pre-wrap">
+                               {(activeTask.resource_text || '').replace(/{contact_name}/g, selectedLead.contact_name || '')}
+                             </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-3 items-center pt-4">
+                          <button onClick={() => handleOpenWhatsApp(selectedLead, activeTask.resource_text)} className="bg-emerald-500 text-white font-black py-3 px-6 rounded-xl shadow-md hover:bg-emerald-600 transition-all uppercase text-[10px] tracking-widest flex items-center">
+                            <Send className="w-4 h-4 mr-2" /> Send via WhatsApp
+                          </button>
+                          
+                          {activeTask.media_url && (
+                              <button onClick={() => window.open(activeTask.media_url, '_blank')} className="bg-white border border-slate-300 text-slate-600 font-black py-3 px-5 rounded-xl shadow-sm hover:bg-slate-50 transition-all uppercase text-[10px] tracking-widest flex items-center">
+                                  <LinkIcon className="w-4 h-4 mr-2" /> View Media Attachment
+                              </button>
+                          )}
+                          
+                          <div className="flex-1 flex justify-end gap-3">
+                            {lastCompletedTask && (
+                              <button 
+                                onClick={() => handleUndoAction(selectedLead, lastCompletedTask)}
+                                className="bg-white border border-red-200 text-red-500 hover:bg-red-50 font-black py-3 px-4 rounded-xl shadow-sm transition-all uppercase text-[10px] tracking-widest flex items-center"
+                              >
+                                <RefreshCw className="w-4 h-4 mr-1.5" /> Undo Last
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => {
+                                const stageActions = e2Pipeline.actions.filter(a => a.stage_id === currentStage.id).sort((a,b) => a.order - b.order);
+                                const currentIdx = stageActions.findIndex(a => a.id === activeTask.id);
+                                const nextTask = currentIdx < stageActions.length - 1 ? stageActions[currentIdx + 1] : null;
+                                handleMarkComplete(selectedLead, activeTask, nextTask);
+                              }}
+                              className="bg-blue-600 text-white font-black py-3 px-6 rounded-xl shadow-md hover:bg-blue-700 transition-all uppercase text-[10px] tracking-widest flex items-center"
+                            >
+                              <CheckCircle className="w-4 h-4 mr-2" /> Mark Complete
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-emerald-50 border border-emerald-200 p-8 rounded-2xl text-center">
+                         <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
+                         <h4 className="text-sm font-black text-emerald-800 uppercase tracking-widest">All Drops Complete</h4>
+                         <p className="text-xs font-medium text-emerald-600 mt-2 mb-6">This lead has finished the "{currentStage.name}" sequence.</p>
+                         
+                         <div className="flex justify-center gap-4">
+                           {lastCompletedTask && (
+                              <button onClick={() => handleUndoAction(selectedLead, lastCompletedTask)} className="bg-white border border-red-200 text-red-600 hover:bg-red-50 font-black py-2.5 px-5 rounded-xl shadow-sm transition-all uppercase text-[10px] tracking-widest flex items-center">
+                                <RefreshCw className="w-4 h-4 mr-2" /> Undo Final Action
+                              </button>
+                           )}
+                           <button 
+                             onClick={() => {
+                               const currentIdx = e2Pipeline.stages.findIndex(s => s.id === currentStage.id);
+                               if (currentIdx > -1 && currentIdx < e2Pipeline.stages.length - 1) {
+                                 handleStageChange(selectedLead.id, e2Pipeline.stages[currentIdx + 1].name);
+                               } else {
+                                 alert("They have completed the final E2 stage!");
+                               }
+                             }}
+                             className="bg-emerald-600 text-white font-black py-2.5 px-6 rounded-xl shadow-md hover:bg-emerald-700 transition-all uppercase text-[10px] tracking-widest flex items-center"
+                           >
+                             Advance to Next Stage <ArrowRight className="w-4 h-4 ml-2" />
+                           </button>
+                         </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-6 pb-10">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center"><FileText className="w-3 h-3 mr-1" /> Log Activity / Internal Notes</h4>
+                    <form onSubmit={handleAddNote} className="flex flex-col sm:flex-row gap-4 flex-1">
+                      <div className="w-full sm:w-1/3">
+                        <select value={noteType} onChange={(e) => setNoteType(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-600 outline-none focus:border-blue-400">
+                          <option value="Internal Note">Internal Note</option>
+                          <option value="WhatsApp">WhatsApp Message Sent</option>
+                          <option value="Call">Phone Call</option>
+                          <option value="Meeting">Meeting Completed</option>
+                        </select>
+                      </div>
+                      <div className="w-full sm:w-2/3 flex flex-col gap-3">
+                        <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Type E2 observation notes here..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-medium outline-none focus:border-blue-400 min-h-[60px]"></textarea>
+                        <button type="submit" disabled={!noteText.trim()} className="self-end bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest px-8 py-3 rounded-xl disabled:opacity-50 hover:bg-slate-700 transition-colors shadow-md">Save Log</button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center"><FileText className="w-3 h-3 mr-1" /> The Lead Journey (E1 + E2 Audit Trail)</h4>
+                    <div className="bg-white rounded-2xl p-5 max-h-[400px] overflow-y-auto border border-slate-200 shadow-sm">
+                      {(!Array.isArray(selectedLead.logs) || selectedLead.logs.length === 0) ? <div className="py-12 text-center"><Inbox className="w-8 h-8 text-slate-200 mx-auto mb-3" /><p className="text-xs text-slate-400 font-bold uppercase tracking-widest">No activity logged yet.</p></div> : (
+                        <div className="space-y-4">
+                          {[...selectedLead.logs].reverse().map((log, i) => (
+                            <div key={i} className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-start gap-4 group hover:border-blue-100 transition-colors">
+                              <div className="mt-1 bg-white shadow-sm border border-slate-200 p-2 rounded-xl shrink-0">{getLogIcon(log.type)}</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex justify-between items-start mb-1.5">
+                                  <span className="font-black text-slate-800 text-xs truncate">{log.agent} <span className="text-slate-400 font-bold ml-1">({log.type})</span></span>
+                                  <button type="button" onClick={() => handleDeleteLog(log.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 bg-white p-1.5 rounded-md border border-slate-200 shadow-sm"><Trash2 className="w-3 h-3" /></button>
+                                </div>
+                                <span className="text-slate-700 block mb-2 text-sm font-medium whitespace-pre-wrap break-words leading-relaxed">{log.text}</span>
+                                <div className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{new Date(log.date).toLocaleString()}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        )}
       </div>
 
-      {/* EXPANDED CONTENT AREA */}
-      {expanded && (
-        <div className="p-4 pt-0 border-t border-slate-100 bg-slate-50/50 flex flex-col md:flex-row gap-6 animate-in slide-in-from-top-2 duration-200">
-          
-          {/* Audit Trail */}
-          <div className="flex-1 mt-4">
-             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center"><FileText className="w-3 h-3 mr-1" /> Quick Audit Trail</h4>
-             <div className="bg-white rounded-xl p-4 max-h-[250px] overflow-y-auto border border-slate-200 shadow-inner">
-               {(!lead.logs || lead.logs.length === 0) ? (
-                 <p className="text-xs text-slate-400 font-bold uppercase tracking-widest text-center py-6">No activity logged.</p>
-               ) : (
-                 <div className="space-y-3">
-                   {[...lead.logs].reverse().map((log, i) => (
-                     <div key={i} className="flex items-start gap-3 group">
-                       <div className="mt-0.5 bg-slate-50 border border-slate-200 p-1.5 rounded-lg shrink-0">{getLogIcon(log.type)}</div>
-                       <div className="flex-1 min-w-0">
-                         <div className="flex justify-between items-start mb-0.5">
-                           <span className="font-black text-slate-800 text-[11px] truncate">{log.agent} <span className="text-slate-400">({log.type})</span></span>
-                           <button type="button" onClick={() => onDeleteLog(lead.id, log.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3 h-3" /></button>
-                         </div>
-                         <span className="text-slate-600 block text-xs font-medium whitespace-pre-wrap">{log.text}</span>
-                         <div className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">{new Date(log.date).toLocaleString()}</div>
-                       </div>
-                     </div>
-                   ))}
-                 </div>
-               )}
-             </div>
-          </div>
-
-          {/* Summer Break (Manual Pause) */}
-          <div className="md:w-1/3 mt-4">
-             <div className="bg-purple-50 p-5 rounded-xl border border-purple-200 shadow-sm h-full">
-               <h4 className="text-[10px] font-black text-purple-800 uppercase tracking-widest mb-2 flex items-center"><PauseCircle className="w-4 h-4 mr-1.5" /> Summer Break (Hard Pause)</h4>
-               <p className="text-[10px] font-medium text-purple-600 mb-4 leading-relaxed">Need to pause this nurture sequence until September? Pick a date below. They will be frozen and hidden until then.</p>
-               
-               <input 
-                 type="date" 
-                 value={manualPauseDate} 
-                 onChange={(e) => onSetFollowUp(lead.id, e.target.value)} 
-                 className="w-full bg-white border border-purple-200 rounded-lg p-3 text-sm font-bold text-slate-700 outline-none focus:border-purple-400 cursor-pointer shadow-sm mb-3" 
-               />
-               
-               {manualPauseDate && (
-                 <button onClick={() => onSetFollowUp(lead.id, null)} className="w-full py-2 text-[10px] font-black text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg uppercase tracking-widest transition-colors">
-                   Remove Pause
-                 </button>
-               )}
-             </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
