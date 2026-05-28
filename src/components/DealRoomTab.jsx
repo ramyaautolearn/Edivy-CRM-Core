@@ -35,7 +35,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const [filterStage, setFilterStage] = useState('all');
   const [filterDateType, setFilterDateType] = useState('all');
   const [filterCustomDate, setFilterCustomDate] = useState('');
-  const [filterSource, setFilterSource] = useState('all'); // NEW: For Resurrected
+  const [filterSource, setFilterSource] = useState('all'); // Filter for Re-Activations History
 
   const appId = 'edivy-crm-vault';
   const today = new Date().toISOString().split('T')[0];
@@ -89,7 +89,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
-  // MAGIC FLAG CLEARER (For Disappearing Badges)
+  // MAGIC FLAG CLEARER (For Disappearing Badges & Real-time Inbox-Zero)
   const clearRecentMoveFlag = async () => {
     if (selectedLead?.recent_move) {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { recent_move: null });
@@ -180,7 +180,9 @@ export default function DealRoomTab({ user, initialLeadId }) {
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
       logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Tactical Bypass: Force Unlocked Task "${taskName}" out of sequence.`, agent: user?.name || 'Agent' })
     });
-    setExpandedTaskId(currentStageData?.tasks?.findIndex(t => `${currentStageData.name}::${t.name}` === taskKey));
+    if (currentStageData?.tasks) {
+      setExpandedTaskId(currentStageData.tasks.findIndex(t => `${currentStageData.name}::${t.name}` === taskKey));
+    }
   };
 
   const handleReLock = (taskKey) => { setUnlockedTasks(prev => prev.filter(k => k !== taskKey)); };
@@ -235,7 +237,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
     if (!selectedLead || !window.confirm("Eject this lead from Active Sales to Engine 2 (Nurture)?")) return;
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
       engine: 2, stage_name: 'Awakening (Entry)', temperature: 'Cold', next_follow_up: null, 
-      recent_move: 'E1 to E2', // SET FLAG FOR BADGE
+      recent_move: 'E1 to E2', 
       last_activity_at: serverTimestamp(),
       logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Ejected Lead to Engine 2 (Nurture)`, agent: user?.name || 'Agent' })
     });
@@ -302,7 +304,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   };
 
   const myLeads = leads.filter(l => {
-      if (l.engine === 2) return false; // Hide E2 leads from E1 Deal Room completely!
+      if (l.engine === 2) return false; 
       if (!l.assigned_to || !user) return false;
       const assignedLower = String(l.assigned_to).toLowerCase();
       const userIdLower = String(user.id || '').toLowerCase();
@@ -312,15 +314,17 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const actionQueueLeads = myLeads.filter(l => isLeadActionableToday(l) && !l.is_demo_booked); 
   const demoLeads = myLeads.filter(l => l.is_demo_booked);
-  const resurrectedLeads = myLeads.filter(l => l.resurrected_from_e2 === true); // NEW: Resurrected
+  
+  // REFINEMENT 2: Filter strictly by the temporary badge flag for the Unread Inbox flow
+  const reActivationLeads = myLeads.filter(l => l.recent_move === 'E2 to E1'); 
   
   let displayedLeads = [];
   if (activeTab === 'action_queue') displayedLeads = actionQueueLeads;
   else if (activeTab === 'demos') displayedLeads = demoLeads;
-  else if (activeTab === 'resurrected') displayedLeads = resurrectedLeads;
+  else if (activeTab === 'resurrected') displayedLeads = reActivationLeads;
   else if (activeTab === 'all') {
       displayedLeads = leads.filter(l => {
-          if (l.engine === 2) return false; // Ensure E2 leads are hidden from Bank
+          if (l.engine === 2) return false; 
           
           if (searchQuery) {
               const q = searchQuery.toLowerCase();
@@ -346,7 +350,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
           else if (filterDateType === 'overdue') { if (!lDateStr || lDateStr >= today) return false; }
           else if (filterDateType === 'custom') { if (!filterCustomDate || lDateStr !== filterCustomDate) return false; }
           
-          if (filterSource === 'resurrected' && !l.resurrected_from_e2) return false; // NEW FILTER
+          if (filterSource === 'resurrected' && !l.resurrected_from_e2) return false; 
 
           return true;
       });
@@ -400,17 +404,21 @@ export default function DealRoomTab({ user, initialLeadId }) {
       const stageLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Jumped to Pipeline Stage`));
       baseDate = stageLog ? new Date(stageLog.date) : new Date();
     } else {
-      const prevTaskName = currentStageData.tasks[idx-1].name;
-      const prevTaskKey = `${currentStageData.name}::${prevTaskName}`;
-      const currentCompleted = selectedLead.completed_tasks || [];
-      const isPrevCurrentlyCompleted = currentCompleted.includes(prevTaskKey);
+      if (currentStageData?.tasks) {
+        const prevTaskName = currentStageData.tasks[idx-1].name;
+        const prevTaskKey = `${currentStageData.name}::${prevTaskName}`;
+        const currentCompleted = selectedLead.completed_tasks || [];
+        const isPrevCurrentlyCompleted = currentCompleted.includes(prevTaskKey);
 
-      if (isPrevCurrentlyCompleted) {
-        const prevLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Completed Task: ${prevTaskName}`));
-        baseDate = prevLog ? new Date(prevLog.date) : new Date();
+        if (isPrevCurrentlyCompleted) {
+          const prevLog = [...(selectedLead.logs || [])].reverse().find(l => l.text.includes(`Completed Task: ${prevTaskName}`));
+          baseDate = prevLog ? new Date(prevLog.date) : new Date();
+        } else {
+          baseDate = new Date();
+          isEstimated = true;
+        }
       } else {
         baseDate = new Date();
-        isEstimated = true;
       }
     }
 
@@ -471,7 +479,10 @@ export default function DealRoomTab({ user, initialLeadId }) {
         <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col gap-2 shrink-0">
           <button onClick={() => setActiveTab('action_queue')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'action_queue' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Zap className="w-3.5 h-3.5 mr-2"/> Action Queue</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='action_queue'?'bg-white/20':'bg-slate-100'}`}>{actionQueueLeads.length}</span></button>
           <button onClick={() => setActiveTab('demos')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'demos' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Calendar className="w-3.5 h-3.5 mr-2"/> Demos Booked</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='demos'?'bg-white/20':'bg-slate-100'}`}>{demoLeads.length}</span></button>
-          <button onClick={() => setActiveTab('resurrected')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'resurrected' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-orange-300' }`}><span className="flex items-center"><Flame className="w-3.5 h-3.5 mr-2"/> Resurrected (E2)</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='resurrected'?'bg-white/20':'bg-slate-100'}`}>{resurrectedLeads.length}</span></button>
+          
+          {/* REFINEMENT 1: Renamed Tab ID interface target from "Resurrected" to "Re-Activations" */}
+          <button onClick={() => setActiveTab('resurrected')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'resurrected' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-orange-300' }`}><span className="flex items-center"><Flame className="w-3.5 h-3.5 mr-2"/> Re-Activations</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='resurrected'?'bg-white/20':'bg-slate-100'}`}>{reActivationLeads.length}</span></button>
+          
           <button onClick={() => setActiveTab('all')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Inbox className="w-3.5 h-3.5 mr-2"/> All Leads (Bank)</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='all'?'bg-white/20':'bg-slate-100'}`}>{leads.filter(l => l.engine !== 2).length}</span></button>
         </div>
 
@@ -510,7 +521,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                     </select>
                     <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
                         <option value="all">Any Source</option>
-                        <option value="resurrected">E2 Resurrected Only</option>
+                        <option value="resurrected">E2 Re-Activations History</option>
                     </select>
                 </div>
                 {filterDateType === 'custom' && (
@@ -553,7 +564,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
         ) : (
           <div className="flex flex-col h-full w-full animate-in fade-in duration-300 relative">
             
-            {/* Render Safely Extracted Date (Only if NO demo booked) */}
             {!selectedLead.is_demo_booked && safeDateStr(selectedLead.next_follow_up) && safeDateStr(selectedLead.next_follow_up) <= today && (
               <div className={`px-6 py-2.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-center shrink-0 shadow-sm z-20 ${safeDateStr(selectedLead.next_follow_up) < today ? 'bg-red-500 text-white' : 'bg-amber-400 text-amber-950'}`}><Clock className="w-4 h-4 mr-2" /> {safeDateStr(selectedLead.next_follow_up) < today ? `🚨 OVERDUE ACTION (Was due ${safeDateStr(selectedLead.next_follow_up)})` : '⚡ ACTION REQUIRED TODAY'}</div>
             )}
@@ -580,7 +590,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   <p className="flex items-center"><Phone className="w-4 h-4 mr-1 text-indigo-500" /> {selectedLead.phone}</p>
                 </div>
                 
-                {/* THE PINNED DEMO BADGE */}
                 {selectedLead.is_demo_booked && selectedLead.demo_date && (
                   <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm mr-3">
                     <Calendar className="w-3.5 h-3.5 mr-2" />
@@ -588,10 +597,10 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   </div>
                 )}
 
-                {/* THE RECENTLY MOVED BADGE (Disappears on work) */}
+                {/* RE-ACTIVATION LIVE GLOW BADGE */}
                 {selectedLead.recent_move === 'E2 to E1' && (
                   <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-orange-50 border border-orange-200 text-orange-600 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm animate-pulse">
-                    <Flame className="w-3.5 h-3.5 mr-2" /> RECENTLY MOVED: E2 TO E1
+                    <Flame className="w-3.5 h-3.5 mr-2" /> RE-ACTIVATION IMMINENT: E2 TO E1
                   </div>
                 )}
               </div>
@@ -616,7 +625,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
             <div className="flex-1 flex overflow-hidden relative">
                 
-                {/* Main Scrollable Workspace */}
                 <div className={`flex-1 p-6 bg-slate-50 overflow-y-auto transition-opacity ${isLockedDown ? 'opacity-80' : ''}`}>
                   <div className="max-w-4xl mx-auto space-y-6">
                     
@@ -786,7 +794,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   </div>
                 </div>
 
-                {/* CONSTRAINED VAULT DRAWER */}
                 {showVault && !isLockedDown && (
                   <div className="w-[400px] h-full bg-slate-50 border-l border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-20">
                     <div className="p-5 bg-slate-900 text-white flex justify-between items-center shrink-0 shadow-md">
@@ -822,7 +829,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   </div>
                 )}
 
-                {/* CALENDLY DATE/TIME CONFIRMATION MODAL */}
                 {showCalendlyConfirm && (
                   <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6 text-center border border-slate-200 relative">

@@ -28,10 +28,11 @@ export default function E2CommandCenter({ user }) {
   const [noteText, setNoteText] = useState('');
   const [noteType, setNoteType] = useState('Internal Note');
 
-  // Filter State (For Bank)
+  // Filter State (For Bank & Hand-Raisers)
   const [searchQuery, setSearchQuery] = useState('');
   const [filterOwner, setFilterOwner] = useState('all');
   const [filterStage, setFilterStage] = useState('all');
+  const [filterSource, setFilterSource] = useState('all'); // specific for Bank
 
   const appId = 'edivy-crm-vault';
   const today = new Date().toISOString().split('T')[0];
@@ -91,7 +92,7 @@ export default function E2CommandCenter({ user }) {
 
   const selectedLead = allLeads.find((l) => l.id === selectedLeadId);
 
-  // Magic Flag Clearer
+  // Magic Flag Clearer - Enables Inbox Zero Workflow
   const clearRecentMoveFlag = async () => {
     if (selectedLead?.recent_move) {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { recent_move: null });
@@ -99,7 +100,7 @@ export default function E2CommandCenter({ user }) {
   };
 
   const handleMarkComplete = async (lead, currentAction, nextAction) => {
-    await clearRecentMoveFlag(); // Clear the "Recently Moved" badge
+    await clearRecentMoveFlag(); 
 
     let newDueDate = null;
     if (nextAction) {
@@ -147,6 +148,8 @@ export default function E2CommandCenter({ user }) {
   };
 
   const handleStageChange = async (leadId, newStageName) => {
+    await clearRecentMoveFlag();
+
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), {
       stage_name: newStageName,
       next_e2_due_date: today,
@@ -170,7 +173,7 @@ export default function E2CommandCenter({ user }) {
       stage_name: 'New Lead', 
       next_follow_up: today,
       resurrected_from_e2: true,
-      recent_move: 'E2 to E1', // Set the E1 Badge Flag
+      recent_move: 'E2 to E1', 
       last_activity_at: serverTimestamp(),
       logs: arrayUnion({ 
         id: Date.now().toString(), 
@@ -184,7 +187,7 @@ export default function E2CommandCenter({ user }) {
   };
 
   const handleOpenWhatsApp = async (lead, script) => {
-    await clearRecentMoveFlag(); // Clear the "Recently Moved" badge
+    await clearRecentMoveFlag(); 
     let textToCopy = (script || '').replace(/{contact_name}/g, lead.contact_name || 'there');
     const cleanPhone = (lead.phone || '').replace(/\D/g, ''); 
     try { await navigator.clipboard.writeText(textToCopy); } catch (err) { }
@@ -194,7 +197,7 @@ export default function E2CommandCenter({ user }) {
   const handleAddNote = async (e) => {
     e.preventDefault();
     if (!noteText.trim() || !selectedLeadId) return;
-    await clearRecentMoveFlag(); // Clear the "Recently Moved" badge
+    await clearRecentMoveFlag(); 
 
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLeadId), {
@@ -217,8 +220,12 @@ export default function E2CommandCenter({ user }) {
     } catch (err) {}
   };
 
+  // -------------------------
+  // QUEUE & BANK CALCULATIONS
+  // -------------------------
   const e2Leads = allLeads.filter(l => l.engine === 2);
   const resurrectedLeads = allLeads.filter(l => l.resurrected_from_e2 === true);
+  const ejectedLeads = e2Leads.filter(l => l.recent_move === 'E1 to E2');
 
   const actionableLeads = e2Leads.filter(l => {
     const dueStr = safeDateStr(l.next_e2_due_date) || today;
@@ -230,23 +237,40 @@ export default function E2CommandCenter({ user }) {
     return dueStr && dueStr < today;
   });
 
-  let displayedBankLeads = e2Leads.filter(l => {
-    if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        if (!(l.school_name || '').toLowerCase().includes(q) && !(l.contact_name || '').toLowerCase().includes(q)) return false;
-    }
-    if (filterOwner === 'me') {
-        const myId = String(user?.id || '').toLowerCase();
-        const aTo = String(l.assigned_to || '').toLowerCase();
-        if (aTo !== myId && aTo !== String(user?.email || '').toLowerCase()) return false;
-    } else if (filterOwner !== 'all') {
-        if (l.assigned_to !== filterOwner) return false;
-    }
-    if (filterStage !== 'all' && l.stage_name !== filterStage) return false;
-    return true;
-  });
+  const applyFilters = (leadsArray) => {
+    return leadsArray.filter(l => {
+      if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          if (!(l.school_name || '').toLowerCase().includes(q) && !(l.contact_name || '').toLowerCase().includes(q)) return false;
+      }
+      if (filterOwner === 'me') {
+          const myId = String(user?.id || '').toLowerCase();
+          const aTo = String(l.assigned_to || '').toLowerCase();
+          if (aTo !== myId && aTo !== String(user?.email || '').toLowerCase()) return false;
+      } else if (filterOwner !== 'all') {
+          if (l.assigned_to !== filterOwner) return false;
+      }
+      if (filterStage !== 'all' && l.stage_name !== filterStage) return false;
+      
+      // Source filter specific to E2 Bank
+      if (activeTab === 'bank' && filterSource === 'from_e1') {
+          const hasTempFlag = l.recent_move === 'E1 to E2';
+          const hasHistoricalLog = (l.logs || []).some(log => typeof log.text === 'string' && log.text.includes('Ejected Lead to Engine 2'));
+          if (!hasTempFlag && !hasHistoricalLog) return false;
+      }
+      
+      return true;
+    });
+  };
 
-  const activeAssignedIds = [...new Set(e2Leads.map(l => l.assigned_to).filter(Boolean))];
+  const displayedBankLeads = applyFilters(e2Leads);
+  const displayedHandRaisers = applyFilters(resurrectedLeads);
+
+  // Dynamic Stage list for Hand Raisers (Since they are in E1, we extract from their actual data)
+  const handRaiserStages = [...new Set(resurrectedLeads.map(l => l.stage_name || 'New Lead'))];
+
+  // Users for the filter dropdown
+  const activeAssignedIds = [...new Set(allLeads.map(l => l.assigned_to).filter(Boolean))];
   const dropdownUsers = activeAssignedIds.map(id => {
       const crmU = crmUsers.find(u => String(u.id) === String(id) || String(u.email) === String(id));
       let displayName = `Agent: ${String(id).substring(0, 6)}...`;
@@ -262,6 +286,12 @@ export default function E2CommandCenter({ user }) {
     return <FileText className="w-3 h-3 text-slate-400" />;
   };
 
+  const clearAllFilters = () => {
+    setSearchQuery(''); setFilterOwner('all'); setFilterStage('all'); setFilterSource('all');
+  };
+
+  const isFilterActive = searchQuery || filterOwner !== 'all' || filterStage !== 'all' || filterSource !== 'all';
+
   const currentStage = selectedLead ? (e2Pipeline?.stages || []).find(s => s.name === selectedLead.stage_name) : null;
   const activeTask = selectedLead ? getNextActionForLead(selectedLead, currentStage) : null;
   const lastCompletedTask = selectedLead ? getLastCompletedAction(selectedLead, currentStage) : null;
@@ -273,17 +303,26 @@ export default function E2CommandCenter({ user }) {
         <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-col gap-1.5 shrink-0">
           <button onClick={() => { setActiveTab('action_queue'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'action_queue' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Zap className="w-3.5 h-3.5 mr-2"/> Actionable Today</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='action_queue'?'bg-white/20':'bg-slate-800'}`}>{actionableLeads.length}</span></button>
           <button onClick={() => { setActiveTab('overdue'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'overdue' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><AlertCircle className="w-3.5 h-3.5 mr-2"/> Overdue Drops</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='overdue'?'bg-white/20':'bg-slate-800'}`}>{overdueLeads.length}</span></button>
+          
+          <button onClick={() => { setActiveTab('ejected'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'ejected' ? 'bg-cyan-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Snowflake className="w-3.5 h-3.5 mr-2"/> Ejected From E1</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='ejected'?'bg-white/20':'bg-slate-800'}`}>{ejectedLeads.length}</span></button>
+          
           <button onClick={() => { setActiveTab('bank'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'bank' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Inbox className="w-3.5 h-3.5 mr-2"/> The E2 Bank</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='bank'?'bg-white/20':'bg-slate-800'}`}>{e2Leads.length}</span></button>
-          <button onClick={() => { setActiveTab('resurrected'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'resurrected' ? 'bg-orange-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Flame className="w-3.5 h-3.5 mr-2"/> Hand-Raisers</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='resurrected'?'bg-white/20':'bg-slate-800'}`}>{resurrectedLeads.length}</span></button>
+          <button onClick={() => { setActiveTab('resurrected'); setSelectedLeadId(null); }} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'resurrected' ? 'bg-orange-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' }`}><span className="flex items-center"><Flame className="w-3.5 h-3.5 mr-2"/> Hand-Raisers (E1)</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='resurrected'?'bg-white/20':'bg-slate-800'}`}>{resurrectedLeads.length}</span></button>
         </div>
 
-        {activeTab === 'bank' && (
+        {/* DYNAMIC FILTER DRAWER */}
+        {(activeTab === 'bank' || activeTab === 'resurrected') && (
             <div className="p-3 bg-white border-b border-slate-200 shrink-0 shadow-sm flex flex-col gap-2">
                 <div className="flex gap-2">
                     <div className="relative flex-1">
                         <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-                        <input type="text" placeholder="Search cold leads..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-[10px] font-bold text-slate-700 outline-none focus:border-blue-400" />
+                        <input type="text" placeholder="Search leads..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-[10px] font-bold text-slate-700 outline-none focus:border-blue-400" />
                     </div>
+                    {isFilterActive && (
+                        <button onClick={clearAllFilters} className="bg-red-50 text-red-600 hover:bg-red-100 px-2.5 rounded-lg flex items-center justify-center transition-colors shadow-sm" title="Clear Filters">
+                            <FilterX className="w-3.5 h-3.5" />
+                        </button>
+                    )}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                     <select value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer truncate">
@@ -293,9 +332,20 @@ export default function E2CommandCenter({ user }) {
                     </select>
                     <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
                         <option value="all">All Stages</option>
-                        {e2Pipeline?.stages?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        {activeTab === 'bank' 
+                            ? e2Pipeline?.stages?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)
+                            : handRaiserStages.map(s => <option key={s} value={s}>{s}</option>)
+                        }
                     </select>
                 </div>
+                {activeTab === 'bank' && (
+                    <div className="grid grid-cols-1 gap-2">
+                        <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
+                            <option value="all">Any Origin Source</option>
+                            <option value="from_e1">Ejected from E1</option>
+                        </select>
+                    </div>
+                )}
             </div>
         )}
 
@@ -335,25 +385,35 @@ export default function E2CommandCenter({ user }) {
           ) : 
           (
             <div className="p-3 space-y-3">
-              {(activeTab === 'bank' ? displayedBankLeads : resurrectedLeads).map((l) => (
-                <div key={l.id} onClick={() => setSelectedLeadId(l.id)} className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${ selectedLeadId === l.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'bg-white border-slate-100 hover:border-blue-200' }`}>
+              {(activeTab === 'bank' ? displayedBankLeads : activeTab === 'resurrected' ? displayedHandRaisers : ejectedLeads).map((l) => (
+                <div key={l.id} onClick={() => setSelectedLeadId(l.id)} className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all relative overflow-hidden ${ selectedLeadId === l.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'bg-white border-slate-100 hover:border-blue-200' }`}>
+                  {activeTab === 'resurrected' && l.assigned_to && <div className="absolute top-0 left-0 w-1 h-full bg-amber-400"></div>}
+                  
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-bold text-sm tracking-tight text-slate-900 truncate pr-2">{l.school_name}</h4>
                     {activeTab === 'resurrected' && <Flame className="w-4 h-4 text-orange-500 fill-current shrink-0" />}
+                    {activeTab === 'ejected' && <Snowflake className="w-4 h-4 text-cyan-500 shrink-0" />}
                   </div>
+                  
                   {activeTab === 'bank' && safeDateStr(l.next_e2_due_date) > today && (
                     <div className="text-[9px] font-black uppercase tracking-widest mb-2 flex items-center w-max px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
                       <Clock className="w-3 h-3 mr-1" /> Wakes up: {safeDateStr(l.next_e2_due_date)}
                     </div>
                   )}
+                  
                   <div className="flex justify-between items-center pt-2 border-t border-slate-100/50">
                     <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest bg-slate-100 text-slate-600 truncate max-w-[150px]">
                       {l.stage_name || 'E2 Entry'}
                     </span>
+                    {activeTab === 'resurrected' && l.assigned_to && (
+                        <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest flex items-center">
+                            <User className="w-3 h-3 mr-1" /> Assigned
+                        </span>
+                    )}
                   </div>
                 </div>
               ))}
-              {(activeTab === 'bank' ? displayedBankLeads : resurrectedLeads).length === 0 && <div className="p-10 text-center text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em]">No Leads Found</div>}
+              {(activeTab === 'bank' ? displayedBankLeads : activeTab === 'resurrected' ? displayedHandRaisers : ejectedLeads).length === 0 && <div className="p-10 text-center text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em]">No Leads Found</div>}
             </div>
           )}
         </div>
@@ -378,7 +438,6 @@ export default function E2CommandCenter({ user }) {
                   <p className="flex items-center"><Phone className="w-4 h-4 mr-1 text-blue-500" /> {selectedLead.phone}</p>
                 </div>
                 
-                {/* RECENTLY MOVED BADGE (Disappears on work) */}
                 {selectedLead.recent_move === 'E1 to E2' && (
                   <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm animate-pulse">
                     <Snowflake className="w-3.5 h-3.5 mr-2" /> RECENTLY MOVED: E1 TO E2
@@ -401,17 +460,17 @@ export default function E2CommandCenter({ user }) {
                 {selectedLead.engine === 2 && (
                   <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200">
                     
-                    {/* LAYOUT FIX: Used flex-wrap and gap to prevent floating out */}
-                    <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6 border-b border-slate-100 pb-4 gap-4">
+                    {/* UI FIX: Flawless Responsive Dropdown Wrapper */}
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6 border-b border-slate-100 pb-4 gap-3">
                       <h3 className="text-[10px] font-black text-blue-800 uppercase tracking-widest flex items-center shrink-0">
                         <PlayCircle className="w-4 h-4 mr-2 text-blue-500" /> Drop Execution Protocol
                       </h3>
-                      <div className="flex items-center gap-2 max-w-full">
+                      <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0">Current Stage:</span>
                         <select 
                           value={selectedLead.stage_name || ''} 
                           onChange={(e) => handleStageChange(selectedLead.id, e.target.value)}
-                          className="bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:border-blue-400 transition-colors w-full sm:w-auto"
+                          className="flex-1 min-w-0 bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:border-blue-400 transition-colors"
                         >
                           <option value="" disabled>Select Stage...</option>
                           {e2Pipeline?.stages?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -437,7 +496,6 @@ export default function E2CommandCenter({ user }) {
                           </div>
                         </div>
 
-                        {/* SCRIPT FOCUS: Removed AI Guidance Box, made Script Full Width */}
                         <div className="bg-blue-50/30 p-5 rounded-2xl border border-blue-100">
                              <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Approved WhatsApp Script</label>
                              <div className="bg-white p-4 rounded-xl text-sm font-medium text-slate-700 border border-slate-200 shadow-inner min-h-[120px] whitespace-pre-wrap">
