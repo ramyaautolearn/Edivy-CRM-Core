@@ -181,9 +181,9 @@ export default function LeadEngine({ user }) {
       selectedLeads.forEach(id => {
           const ref = doc(db, 'artifacts', appId, 'public', 'data', 'leads', id);
           batch.update(ref, { 
-              assigned_to: agentId, 
+              assigned_to: agentId === 'unassigned' ? null : agentId, 
               transfer_requested_by: null,
-              logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin Bulk Assigned lead to ${getAgentName(agentId)}.`, agent: user?.name || 'Admin' })
+              logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Admin Bulk Assigned lead to ${agentId === 'unassigned' ? 'Shark Tank' : getAgentName(agentId)}.`, agent: user?.name || 'Admin' })
           });
       });
       await batch.commit();
@@ -281,20 +281,30 @@ export default function LeadEngine({ user }) {
   
   // CSV Import/Export implementation
   const handleExportCSV = () => {
-    const headers = ['School Name', 'Location', 'Contact Name', 'Role', 'Phone', 'Email', 'Tier', 'Tech', 'Vision', 'Score', 'Engine'];
+    // Export only selected leads, OR export the filtered list if none are selected
+    const leadsToExport = selectedLeads.length > 0 
+      ? leads.filter(l => selectedLeads.includes(l.id))
+      : processedLeads;
+
+    if (leadsToExport.length === 0) {
+      alert("No leads available to export!");
+      return;
+    }
+
+    const headers = ['School Name', 'Location', 'Contact Name', 'Role', 'Phone', 'Email', 'Tier', 'Tech', 'Vision', 'Score', 'Engine', 'Stage', 'Assigned To'];
     const csvContent = [
       headers.join(','),
-      ...leads.map(l => [
+      ...leadsToExport.map(l => [
         `"${l.school_name || ''}"`, `"${l.location || ''}"`, `"${l.contact_name || ''}"`, `"${l.contact_role || ''}"`,
         `"${l.phone || ''}"`, `"${l.email || ''}"`, `"${l.pc1 || ''}"`, `"${l.pc2 || ''}"`, `"${l.pc3 || ''}"`,
-        l.score, l.engine
+        l.score || 0, l.engine || 1, `"${l.stage_name || ''}"`, `"${getAgentName(l.assigned_to)}"`
       ].join(','))
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `edivy_leads_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `edivy_leads_export_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
   };
 
@@ -376,10 +386,16 @@ export default function LeadEngine({ user }) {
         </div>
         
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          {/* UPDATED: Export CSV Button Added Here */}
+          <button onClick={handleExportCSV} className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2.5 px-4 rounded-xl flex items-center shadow-sm text-xs uppercase tracking-widest transition-all">
+            <Download className="w-4 h-4 mr-2 text-slate-400" /> Export CSV
+          </button>
+          
           <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
           <button onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2.5 px-4 rounded-xl flex items-center shadow-sm text-xs uppercase tracking-widest transition-all">
             <UploadCloud className="w-4 h-4 mr-2 text-slate-400" /> {isImporting ? 'Importing...' : 'Import CSV'}
           </button>
+          
           <button onClick={openNewModal} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl flex items-center shadow-lg text-xs uppercase tracking-widest transition-all">
             <Plus className="w-5 h-5 mr-2" /> New B2B Lead
           </button>
@@ -589,6 +605,11 @@ export default function LeadEngine({ user }) {
                   </button>
                   <button onClick={() => handleBulkEngine(2)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center">
                       <Snowflake className="w-3.5 h-3.5 mr-1.5" /> Route E2
+                  </button>
+                  
+                  {/* UPDATED: Export Selected Action */}
+                  <button onClick={handleExportCSV} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center ml-2 border border-emerald-500">
+                      <Download className="w-3.5 h-3.5 mr-1.5" /> Export Selected
                   </button>
               </div>
               <button onClick={() => setSelectedLeads([])} className="ml-4 p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors">
