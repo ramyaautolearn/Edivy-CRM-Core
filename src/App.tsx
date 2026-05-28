@@ -13,7 +13,9 @@ import {
   Users,
   Activity,
   FolderOpen,
-  Calendar // <-- Added Calendar Icon
+  Calendar,
+  Briefcase, // <-- Added for Onboarding Desk
+  Settings   // <-- Added for E3 Onboarding Builder
 } from 'lucide-react';
 
 // ==========================================
@@ -29,7 +31,9 @@ import ScriptLibrary from './components/ScriptLibrary';
 import AdminAgents from './components/AdminAgents';
 import AgentAnalytics from './components/AgentAnalytics'; 
 import MediaVault from './components/MediaVault'; 
-import DemoSchedule from './components/DemoSchedule'; // <-- Imported Demo Schedule
+import MeetingCalendar from './components/MeetingCalendar';
+import OnboardingDesk from './components/OnboardingDesk'; // <-- NEW: E3 Command Center
+import E3OnboardingBuilder from './components/E3OnboardingBuilder'; // <-- NEW: E3 Builder
 
 // ==========================================
 // 2. YOUR REAL FIREBASE RECONNECTED!
@@ -182,10 +186,12 @@ export default function App() {
     switch (activeTab) {
       case 'e2-command-center':
         return <E2CommandCenter user={user} />; 
+      case 'onboarding-desk': // <-- NEW ROUTE
+        return <OnboardingDesk user={user} />;
       case 'control-tower':
         return <ControlTower />;
-      case 'demo-schedule': // <-- Added Route
-        return <DemoSchedule />;
+      case 'meeting-calendar': 
+        return <MeetingCalendar />;
       case 'agent-workspace':
         return <AgentDashboard user={user} />;
       case 'lead-engine':
@@ -194,6 +200,8 @@ export default function App() {
         return <PipelineBuilder />;
       case 'nurture-builder':
         return <NurtureBuilder />;
+      case 'e3-builder': // <-- NEW ROUTE
+        return <E3OnboardingBuilder />;
       case 'script-library':
         return <ScriptLibrary />;
       case 'media-vault': 
@@ -243,7 +251,15 @@ export default function App() {
               id="e2-command-center"
               activeTab={activeTab}
               setActiveTab={setActiveTab}
-              />                     
+              />  
+              {/* NEW: Onboarding Desk Sidebar Link */}
+              <SidebarItem
+                icon={<Briefcase />}
+                label="Onboarding Desk"
+                id="onboarding-desk"
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+              />                   
               <SidebarItem
                 icon={<LayoutDashboard />}
                 label="Control Tower"
@@ -251,11 +267,10 @@ export default function App() {
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
-              {/* Added Demo Schedule Sidebar Button */}
               <SidebarItem
                 icon={<Calendar />}
-                label="Demo Schedule"
-                id="demo-schedule"
+                label="Meeting Calendar"
+                id="meeting-calendar"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
@@ -297,6 +312,14 @@ export default function App() {
                 icon={<Droplet />}
                 label="E2: Nurture Drops"
                 id="nurture-builder"
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+              />
+              {/* NEW: E3 Onboarding Builder Sidebar Link */}
+              <SidebarItem
+                icon={<Settings />}
+                label="E3: Onboarding Builder"
+                id="e3-builder"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />

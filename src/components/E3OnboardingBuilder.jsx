@@ -2,15 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, X, Check, CheckCircle2, Zap, ChevronUp, ChevronDown, Copy, Power, Bot, UserCog, Cog, Link as LinkIcon, Sparkles, Loader2 } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import OpenAI from 'openai'; // <-- ADDED GROQ AI
+import OpenAI from 'openai'; // <-- GROQ AI
 
 const appId = 'edivy-crm-vault';
-const pipelineDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active');
+const pipelineDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'e3_pipelines', 'active');
 
 const getDbData = async () => {
   const snap = await getDoc(pipelineDocRef);
   if (snap.exists()) return snap.data();
-  const defaultData = { versions: [{ id: 'v1', name: 'v1.0 - Active Pipeline', status: 'active', engine: 1 }], stages: [], tasks: [] };
+  
+  // E3 Success Pipeline Default Data
+  const defaultData = { 
+    versions: [{ id: 'v1', name: 'v1.0 - Success Pipeline', status: 'active', engine: 3 }], 
+    stages: [], 
+    tasks: [] 
+  };
+  
   await setDoc(pipelineDocRef, defaultData);
   return defaultData;
 };
@@ -27,7 +34,7 @@ const pipelineApi = {
     const data = await getDbData();
     const newVersionId = 'v_' + Date.now();
     if (!data.versions) data.versions = [];
-    data.versions.push({ id: newVersionId, name: newName, status: 'draft', engine: 1 });
+    data.versions.push({ id: newVersionId, name: newName, status: 'draft', engine: 3 });
     await updateDoc(pipelineDocRef, { versions: data.versions });
     return data.versions;
   },
@@ -79,7 +86,7 @@ const pipelineApi = {
   }
 };
 
-export default function AdminPipelineBuilder() {
+export default function E3OnboardingBuilder() {
   const [versions, setVersions] = useState([]);
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [stages, setStages] = useState([]);
@@ -138,7 +145,7 @@ export default function AdminPipelineBuilder() {
   };
 
   const handleMakeActive = async () => {
-    if (window.confirm(`Make ${selectedVersion.name} the LIVE active pipeline?`)) {
+    if (window.confirm(`Make ${selectedVersion.name} the LIVE active onboarding pipeline?`)) {
       const updatedVersions = await pipelineApi.setActiveVersion(selectedVersion.id);
       setVersions([...updatedVersions]);
       alert('Pipeline is now live!');
@@ -196,10 +203,10 @@ export default function AdminPipelineBuilder() {
     setIsGenerating(true);
     try {
       const prompt = `
-        You are an elite B2B SaaS sales copywriter for Edivy (a premium CRM and communication platform for schools).
+        You are an elite B2B SaaS Customer Success Manager for Edivy (a premium CRM and communication platform for schools).
         
-        Based on the following guidance, write a highly-converting, concise WhatsApp script.
-        Use {contact_name} for the prospect's name. No fluff, no aggressive corporate jargon. Be consultative.
+        Based on the following guidance, write a highly-converting, concise WhatsApp script for ONBOARDING/SUPPORT.
+        Use {contact_name} for the client's name. Be helpful, professional, and consultative.
 
         Guidance: "${newTask.ai_guidance}"
 
@@ -280,11 +287,11 @@ export default function AdminPipelineBuilder() {
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 mb-6 flex justify-between items-center shrink-0">
         <div>
           <h2 className="text-xl font-black text-gray-800 flex items-center">
-            Pipeline Architecture
+            E3: Onboarding Architecture
             <span className={`ml-3 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider ${
                 selectedVersion.status === 'active' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-orange-100 text-orange-700 border border-orange-200'
               }`}>
-              {selectedVersion.status === 'active' ? 'LIVE - Accepting Leads' : 'DRAFT MODE'}
+              {selectedVersion.status === 'active' ? 'LIVE - Onboarding Clients' : 'DRAFT MODE'}
             </span>
           </h2>
         </div>
@@ -306,7 +313,7 @@ export default function AdminPipelineBuilder() {
       <div className="flex flex-1 gap-6 overflow-hidden">
         <div className="w-1/3 bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex flex-col">
           <div className="flex justify-between items-center mb-4 border-b pb-3">
-            <h3 className="font-bold text-gray-800">Engine 1 Stages</h3>
+            <h3 className="font-bold text-gray-800">Engine 3: Onboarding Stages</h3>
             <button onClick={() => setIsAddingStage(true)} className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-1.5 rounded-lg font-medium text-sm transition flex items-center">
               <Plus className="w-4 h-4 mr-1" /> Add Stage
             </button>
@@ -452,7 +459,7 @@ export default function AdminPipelineBuilder() {
                         {/* LEFT BOX: AI Prompt */}
                         <div className="flex flex-col">
                            <label className="block text-[9px] font-black uppercase tracking-widest text-purple-600 mb-2">1. AI Guidance Prompt (The Brain)</label>
-                           <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/30 outline-none focus:border-purple-500 min-h-[160px] shadow-sm mb-3" placeholder="e.g., Review previous chat logs. Write a casual 2-sentence reply offering a demo..." />
+                           <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/30 outline-none focus:border-purple-500 min-h-[160px] shadow-sm mb-3" placeholder="e.g., Review previous chat logs. Write a casual 2-sentence reply welcoming them..." />
                            <button 
                              type="button" 
                              onClick={handleGenerateAIPreview} 
@@ -479,9 +486,9 @@ export default function AdminPipelineBuilder() {
                         <div>
                            <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Failure Action (If no reply / invalid)</label>
                            <select value={newTask.failure_action} onChange={(e) => setNewTask({ ...newTask, failure_action: e.target.value })} className="w-full border border-indigo-200 rounded-lg px-4 py-2.5 text-sm bg-white font-bold text-red-600 shadow-sm">
-                             <option value="none">Keep in Engine 1</option>
-                             <option value="e2_eject">Eject to Engine 2 (Nurture)</option>
-                             <option value="update_lead">Flag Lead as Invalid</option>
+                             <option value="none">Keep in Engine 3 (Manual Review)</option>
+                             <option value="flag_admin">Flag for Admin Intervention</option>
+                             <option value="cancel_setup">Cancel Setup / Rollback</option>
                            </select>
                         </div>
                       </div>
