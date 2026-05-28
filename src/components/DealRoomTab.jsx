@@ -243,6 +243,31 @@ export default function DealRoomTab({ user, initialLeadId }) {
     });
   };
 
+  const ejectToE3Converted = async () => {
+    if (!selectedLead || !window.confirm("🎉 CONVERSION: Move this lead to Engine 3 (Client Success & Setup)?")) return;
+    
+    // Clear any previous E1/E2 flags
+    await clearRecentMoveFlag();
+
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
+      engine: 3, 
+      stage_name: 'Financial & Welcome Activation', // Maps to E3 Stage 1
+      temperature: 'Client', 
+      is_demo_booked: false, // Reset for E3 Setup scheduling
+      is_setup_booked: false,
+      next_follow_up: today, // Immediate action required in E3
+      recent_move: 'E1 to E3', 
+      last_activity_at: serverTimestamp(),
+      logs: arrayUnion({ 
+        id: Date.now().toString(), 
+        date: new Date().toISOString(), 
+        type: 'System', 
+        text: `🏆 DEAL WON: Ejected Lead to Engine 3 (Client Success)`, 
+        agent: user?.name || 'Agent' 
+      })
+    });
+  };
+
   const toggleHotStatus = async () => {
     if (!selectedLead) return;
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { temperature: selectedLead.temperature === 'Hot' ? 'Warm' : 'Hot', last_activity_at: serverTimestamp() });
@@ -749,6 +774,10 @@ export default function DealRoomTab({ user, initialLeadId }) {
                         
                         <button onClick={ejectToE2} disabled={isLockedDown} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all uppercase tracking-widest shadow-sm flex items-center ml-auto disabled:opacity-50 disabled:cursor-not-allowed">
                           <Snowflake className="w-3.5 h-3.5 mr-1.5" /> Eject to E2
+
+                          <button onClick={ejectToE3Converted} disabled={isLockedDown} className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all uppercase tracking-widest shadow-sm flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                          <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Convert to E3
+                          </button>                            
                         </button>
                       </div>
                     </div>
