@@ -33,6 +33,10 @@ export default function E2CommandCenter({ user }) {
   const [filterOwner, setFilterOwner] = useState('all');
   const [filterStage, setFilterStage] = useState('all');
   const [filterSource, setFilterSource] = useState('all'); // specific for Bank
+  
+  // Hand-Raiser Accountability Filters
+  const [filterAssignment, setFilterAssignment] = useState('all'); 
+  const [filterWorked, setFilterWorked] = useState('all');
 
   const appId = 'edivy-crm-vault';
   const today = new Date().toISOString().split('T')[0];
@@ -258,6 +262,17 @@ export default function E2CommandCenter({ user }) {
           const hasHistoricalLog = (l.logs || []).some(log => typeof log.text === 'string' && log.text.includes('Ejected Lead to Engine 2'));
           if (!hasTempFlag && !hasHistoricalLog) return false;
       }
+
+      // Hand-Raiser Accountability Filters
+      if (activeTab === 'resurrected') {
+          // Assignment check
+          if (filterAssignment === 'assigned' && !l.assigned_to) return false;
+          if (filterAssignment === 'unassigned' && l.assigned_to) return false;
+          
+          // Worked / Unworked check
+          if (filterWorked === 'unworked' && l.recent_move !== 'E2 to E1') return false;
+          if (filterWorked === 'worked' && l.recent_move === 'E2 to E1') return false;
+      }
       
       return true;
     });
@@ -288,9 +303,10 @@ export default function E2CommandCenter({ user }) {
 
   const clearAllFilters = () => {
     setSearchQuery(''); setFilterOwner('all'); setFilterStage('all'); setFilterSource('all');
+    setFilterAssignment('all'); setFilterWorked('all');
   };
 
-  const isFilterActive = searchQuery || filterOwner !== 'all' || filterStage !== 'all' || filterSource !== 'all';
+  const isFilterActive = searchQuery || filterOwner !== 'all' || filterStage !== 'all' || filterSource !== 'all' || filterAssignment !== 'all' || filterWorked !== 'all';
 
   const currentStage = selectedLead ? (e2Pipeline?.stages || []).find(s => s.name === selectedLead.stage_name) : null;
   const activeTask = selectedLead ? getNextActionForLead(selectedLead, currentStage) : null;
@@ -324,6 +340,7 @@ export default function E2CommandCenter({ user }) {
                         </button>
                     )}
                 </div>
+                
                 <div className="grid grid-cols-2 gap-2">
                     <select value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer truncate">
                         <option value="all">All Agents</option>
@@ -338,11 +355,28 @@ export default function E2CommandCenter({ user }) {
                         }
                     </select>
                 </div>
+                
                 {activeTab === 'bank' && (
                     <div className="grid grid-cols-1 gap-2">
                         <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
                             <option value="all">Any Origin Source</option>
                             <option value="from_e1">Ejected from E1</option>
+                        </select>
+                    </div>
+                )}
+
+                {/* Accountability Filters specifically for Hand-Raisers */}
+                {activeTab === 'resurrected' && (
+                    <div className="grid grid-cols-2 gap-2 mt-1 border-t border-slate-100 pt-2">
+                        <select value={filterAssignment} onChange={(e) => setFilterAssignment(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
+                            <option value="all">Any Assignment</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="unassigned">Unassigned</option>
+                        </select>
+                        <select value={filterWorked} onChange={(e) => setFilterWorked(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 outline-none uppercase tracking-wider cursor-pointer">
+                            <option value="all">Any Status</option>
+                            <option value="unworked">Unworked (New)</option>
+                            <option value="worked">Worked</option>
                         </select>
                     </div>
                 )}
@@ -460,17 +494,17 @@ export default function E2CommandCenter({ user }) {
                 {selectedLead.engine === 2 && (
                   <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200">
                     
-                    {/* UI FIX: Flawless Responsive Dropdown Wrapper */}
-                    <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6 border-b border-slate-100 pb-4 gap-3">
+                    {/* UI FIX: Flawless Stacked / 2-Line Dropdown Wrapper */}
+                    <div className="flex flex-col mb-6 border-b border-slate-100 pb-4 gap-3">
                       <h3 className="text-[10px] font-black text-blue-800 uppercase tracking-widest flex items-center shrink-0">
                         <PlayCircle className="w-4 h-4 mr-2 text-blue-500" /> Drop Execution Protocol
                       </h3>
-                      <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0">Current Stage:</span>
                         <select 
                           value={selectedLead.stage_name || ''} 
                           onChange={(e) => handleStageChange(selectedLead.id, e.target.value)}
-                          className="flex-1 min-w-0 bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:border-blue-400 transition-colors"
+                          className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:border-blue-400 transition-colors"
                         >
                           <option value="" disabled>Select Stage...</option>
                           {e2Pipeline?.stages?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
