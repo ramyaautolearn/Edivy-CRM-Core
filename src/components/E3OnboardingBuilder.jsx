@@ -101,7 +101,7 @@ export default function E3OnboardingBuilder() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Initialize Groq AI
-  const apiKey = "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";
+  const apiKey = "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";
   const groq = new OpenAI({
     apiKey: apiKey,
     baseURL: "https://api.groq.com/openai/v1",
