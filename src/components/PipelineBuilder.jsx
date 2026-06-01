@@ -94,7 +94,7 @@ export default function AdminPipelineBuilder() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Initialize Groq AI
-  const apiKey = "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";
+  const apiKey = "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";
   const groq = new OpenAI({
     apiKey: apiKey,
     baseURL: "https://api.groq.com/openai/v1",
