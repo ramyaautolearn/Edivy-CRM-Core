@@ -864,7 +864,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
                 {showCalendlyConfirm && (
                   <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6 text-center border border-slate-200 relative overflow-y-auto max-h-[70vh]">
+                    <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6 text-center border border-slate-200 relative overflow-y-auto max-h-[75vh]">
                       <button onClick={() => setShowCalendlyConfirm(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-1.5 rounded-lg transition-colors">
                         <X className="w-4 h-4" />
                       </button>
