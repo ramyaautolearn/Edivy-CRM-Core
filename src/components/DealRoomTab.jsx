@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Shield, RefreshCw, MapPin, Star, Flame, Zap, User, Phone, Send, Inbox, Calendar, FileText, CheckCircle, BookOpen, AlertCircle, PlayCircle, Trash2, Video, MessageCircle, Clock, Circle, ChevronDown, ChevronUp, Snowflake, Lock, Unlock, Link as LinkIcon, X, Search, Filter, FilterX
+  Shield, RefreshCw, MapPin, Star, Flame, Zap, User, Phone, Send, Inbox, Calendar, FileText, CheckCircle, BookOpen, AlertCircle, PlayCircle, Trash2, Video, MessageCircle, Clock, Circle, ChevronDown, ChevronUp, Snowflake, Lock, Unlock, Link as LinkIcon, X, Search, Filter, FilterX, Brain
 } from 'lucide-react';
 import {
   collection, onSnapshot, doc, updateDoc, serverTimestamp, arrayUnion, getDoc
@@ -22,6 +22,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const [e1Pipeline, setE1Pipeline] = useState(null);
   const [vaultScripts, setVaultScripts] = useState([]);
   const [showVault, setShowVault] = useState(false);
+  const [showBriefing, setShowBriefing] = useState(false); // NEW: Stage Briefing State
   const [expandedTaskId, setExpandedTaskId] = useState(0); 
   const [unlockedTasks, setUnlockedTasks] = useState([]); 
 
@@ -35,7 +36,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const [filterStage, setFilterStage] = useState('all');
   const [filterDateType, setFilterDateType] = useState('all');
   const [filterCustomDate, setFilterCustomDate] = useState('');
-  const [filterSource, setFilterSource] = useState('all'); // Filter for Re-Activations History
+  const [filterSource, setFilterSource] = useState('all');
 
   const appId = 'edivy-crm-vault';
   const today = new Date().toISOString().split('T')[0];
@@ -78,7 +79,15 @@ export default function DealRoomTab({ user, initialLeadId }) {
     return () => { unsubPipelines(); unsubScripts(); unsubLeads(); unsubUsers(); };
   }, [user]);
 
-  useEffect(() => { setExpandedTaskId(0); setUnlockedTasks([]); setShowVault(false); setShowCalendlyConfirm(false); setDemoDateTime(''); }, [selectedLeadId]);
+  // RESET STATES WHEN SWITCHING LEADS
+  useEffect(() => { 
+    setExpandedTaskId(0); 
+    setUnlockedTasks([]); 
+    setShowVault(false); 
+    setShowBriefing(false); // Close briefing when switching leads
+    setShowCalendlyConfirm(false); 
+    setDemoDateTime(''); 
+  }, [selectedLeadId]);
 
   const safeDateStr = (dateVal) => {
     if (!dateVal) return '';
@@ -89,7 +98,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
-  // MAGIC FLAG CLEARER (For Disappearing Badges & Real-time Inbox-Zero)
   const clearRecentMoveFlag = async () => {
     if (selectedLead?.recent_move) {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { recent_move: null });
@@ -246,16 +254,15 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const ejectToE3Converted = async () => {
     if (!selectedLead || !window.confirm("🎉 CONVERSION: Move this lead to Engine 3 (Client Success & Setup)?")) return;
     
-    // Clear any previous E1/E2 flags
     await clearRecentMoveFlag();
 
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
       engine: 3, 
-      stage_name: 'Financial & Welcome Activation', // Maps to E3 Stage 1
+      stage_name: 'Financial & Welcome Activation', 
       temperature: 'Client', 
-      is_demo_booked: false, // Reset for E3 Setup scheduling
+      is_demo_booked: false, 
       is_setup_booked: false,
-      next_follow_up: today, // Immediate action required in E3
+      next_follow_up: today, 
       recent_move: 'E1 to E3', 
       last_activity_at: serverTimestamp(),
       logs: arrayUnion({ 
@@ -339,8 +346,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
 
   const actionQueueLeads = myLeads.filter(l => isLeadActionableToday(l) && !l.is_demo_booked); 
   const demoLeads = myLeads.filter(l => l.is_demo_booked);
-  
-  // REFINEMENT 2: Filter strictly by the temporary badge flag for the Unread Inbox flow
   const reActivationLeads = myLeads.filter(l => l.recent_move === 'E2 to E1'); 
   
   let displayedLeads = [];
@@ -505,7 +510,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
           <button onClick={() => setActiveTab('action_queue')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'action_queue' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Zap className="w-3.5 h-3.5 mr-2"/> Action Queue</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='action_queue'?'bg-white/20':'bg-slate-100'}`}>{actionQueueLeads.length}</span></button>
           <button onClick={() => setActiveTab('demos')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'demos' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Calendar className="w-3.5 h-3.5 mr-2"/> Demos Booked</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='demos'?'bg-white/20':'bg-slate-100'}`}>{demoLeads.length}</span></button>
           
-          {/* REFINEMENT 1: Renamed Tab ID interface target from "Resurrected" to "Re-Activations" */}
           <button onClick={() => setActiveTab('resurrected')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'resurrected' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-orange-300' }`}><span className="flex items-center"><Flame className="w-3.5 h-3.5 mr-2"/> Re-Activations</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='resurrected'?'bg-white/20':'bg-slate-100'}`}>{reActivationLeads.length}</span></button>
           
           <button onClick={() => setActiveTab('all')} className={`py-2 px-3 text-[10px] font-black rounded-lg uppercase tracking-widest transition-all flex items-center justify-between ${ activeTab === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300' }`}><span className="flex items-center"><Inbox className="w-3.5 h-3.5 mr-2"/> All Leads (Bank)</span><span className={`px-1.5 py-0.5 rounded text-[8px] ${activeTab==='all'?'bg-white/20':'bg-slate-100'}`}>{leads.filter(l => l.engine !== 2).length}</span></button>
@@ -622,7 +626,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   </div>
                 )}
 
-                {/* RE-ACTIVATION LIVE GLOW BADGE */}
                 {selectedLead.recent_move === 'E2 to E1' && (
                   <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-orange-50 border border-orange-200 text-orange-600 text-[11px] font-black uppercase tracking-widest rounded-lg shadow-sm animate-pulse">
                     <Flame className="w-3.5 h-3.5 mr-2" /> RE-ACTIVATION IMMINENT: E2 TO E1
@@ -640,7 +643,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                 </button>
                 <button 
                   disabled={isLockedDown} 
-                  onClick={() => setShowVault(!showVault)} 
+                  onClick={() => { setShowBriefing(false); setShowVault(!showVault); }} 
                   className="px-4 py-2.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 text-[10px] font-black rounded-lg uppercase tracking-widest shadow-sm transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <BookOpen className="w-4 h-4 mr-2" /> Quick Vault Pivot
@@ -674,10 +677,24 @@ export default function DealRoomTab({ user, initialLeadId }) {
                         <h3 className="text-[10px] font-black text-indigo-800 uppercase tracking-widest flex items-center">
                           <PlayCircle className="w-4 h-4 mr-2 text-indigo-500" /> Stage Protocol & Execution
                         </h3>
-                        <select value={selectedLead.stage_name || 'New Lead'} onChange={(e) => handleStageChange(e.target.value)} disabled={isLockedDown} className="text-[10px] font-black text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 outline-none uppercase tracking-widest cursor-pointer hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                          <option value="New Lead">0: New Lead (Unmapped)</option>
-                          {pipelineStages.map(stageName => <option key={stageName} value={stageName}>{stageName}</option>)}
-                        </select>
+                        
+                        <div className="flex items-center gap-3">
+                          {/* UPDATED STAGE BRIEFING BUTTON - ONLY SHOWS IF TEXT EXISTS */}
+                          {currentStageData?.stage_briefing_text && (
+                              <button 
+                                onClick={() => { setShowVault(false); setShowBriefing(!showBriefing); }} 
+                                disabled={isLockedDown} 
+                                className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-colors flex items-center shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${showBriefing ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'}`}
+                              >
+                                <Brain className={`w-3.5 h-3.5 mr-1.5 ${showBriefing ? 'text-indigo-200' : 'text-indigo-500'}`} /> Briefing
+                              </button>
+                          )}
+                          
+                          <select value={selectedLead.stage_name || 'New Lead'} onChange={(e) => handleStageChange(e.target.value)} disabled={isLockedDown} className="text-[10px] font-black text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 outline-none uppercase tracking-widest cursor-pointer hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            <option value="New Lead">0: New Lead (Unmapped)</option>
+                            {pipelineStages.map(stageName => <option key={stageName} value={stageName}>{stageName}</option>)}
+                          </select>
+                        </div>
                       </div>
                       
                       {currentStageData && currentStageData.tasks && currentStageData.tasks.length > 0 ? (
@@ -752,7 +769,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                       )}
                       
                       <div className="flex flex-wrap gap-3 items-center border-t border-slate-100 pt-6">
-                        {/* Standard Actions */}
                         <button onClick={() => handleOpenWhatsApp(null)} disabled={isLockedDown} className="bg-emerald-500 text-white font-black py-2.5 px-5 rounded-xl shadow-md hover:bg-emerald-600 transition-all uppercase text-[10px] tracking-widest flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
                           <Send className="w-4 h-4 mr-2" /> Send via WhatsApp
                         </button>
@@ -773,7 +789,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
                           <Flame className={`w-3.5 h-3.5 mr-1.5 ${selectedLead.temperature === 'Hot' ? 'fill-current' : ''}`} /> {selectedLead.temperature === 'Hot' ? 'Remove Hot Flag' : 'Flag Hot'}
                         </button>
                         
-                        {/* OUTCOME BUTTONS: Pushed to the right and styled differently */}
                         <div className="flex items-center gap-3 ml-auto">
                           <button onClick={ejectToE2} disabled={isLockedDown} className="px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-[10px] font-black text-slate-500 hover:border-slate-400 hover:text-slate-700 transition-all uppercase tracking-widest shadow-sm flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
                             <Snowflake className="w-3.5 h-3.5 mr-1.5" /> Eject to E2
@@ -827,6 +842,26 @@ export default function DealRoomTab({ user, initialLeadId }) {
                   </div>
                 </div>
 
+                {/* THE NEW UPDATED STAGE BRIEFING DRAWER */}
+                {showBriefing && !isLockedDown && (
+                  <div className="w-[400px] h-full bg-slate-50 border-l border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-20">
+                    <div className="p-5 bg-indigo-900 text-white flex justify-between items-center shrink-0 shadow-md">
+                      <h3 className="font-black tracking-widest uppercase text-xs flex items-center"><Brain className="w-4 h-4 mr-2 text-indigo-400" /> Tactical Briefing</h3>
+                      <button onClick={() => setShowBriefing(false)} className="text-slate-400 hover:text-white bg-indigo-800 p-1 rounded"><X className="w-4 h-4"/></button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-6 bg-white border-l border-slate-200 shadow-inner">
+                      <h4 className="font-black text-lg text-slate-800 mb-5 tracking-tight border-b border-slate-100 pb-4">{currentStageData?.name || 'Current Stage'}</h4>
+                      
+                      {/* THIS IS THE MAGIC RENDER CLASS: whitespace-pre-wrap */}
+                      <div className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">
+                        {currentStageData?.stage_briefing_text || "No briefing text configured for this stage yet."}
+                      </div>
+
+                    </div>
+                  </div>
+                )}
+
+                {/* THE VAULT DRAWER */}
                 {showVault && !isLockedDown && (
                   <div className="w-[400px] h-full bg-slate-50 border-l border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-20">
                     <div className="p-5 bg-slate-900 text-white flex justify-between items-center shrink-0 shadow-md">

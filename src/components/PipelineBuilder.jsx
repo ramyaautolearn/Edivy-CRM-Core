@@ -38,10 +38,14 @@ const pipelineApi = {
     data.stages.push({ ...stage, id: 'stage_' + Date.now(), order: data.stages.length });
     await updateDoc(pipelineDocRef, { stages: data.stages });
   },
-  updateStage: async (id, name) => {
+  // UPDATED: Now saves the stage briefing text
+  updateStage: async (id, name, briefingText) => {
     const data = await getDbData();
     const s = (data.stages || []).find(s => s.id === id);
-    if (s) s.name = name;
+    if (s) {
+        s.name = name;
+        s.stage_briefing_text = briefingText || '';
+    }
     await updateDoc(pipelineDocRef, { stages: data.stages });
   },
   deleteStage: async (id) => {
@@ -85,8 +89,12 @@ export default function AdminPipelineBuilder() {
   const [stages, setStages] = useState([]);
   const [selectedStage, setSelectedStage] = useState(null);
   const [tasks, setTasks] = useState([]);
+  
+  // Stage Edit States
   const [isEditingStage, setIsEditingStage] = useState(null);
   const [stageNameInput, setStageNameInput] = useState('');
+  const [stageBriefingInput, setStageBriefingInput] = useState(''); // NEW STATE
+  
   const [isAddingStage, setIsAddingStage] = useState(false);
   const [newStageName, setNewStageName] = useState('');
 
@@ -123,8 +131,19 @@ export default function AdminPipelineBuilder() {
     if (!vId) return;
     const data = await pipelineApi.getPipelineStages(vId);
     setStages(data);
-    if (data.length > 0) setSelectedStage(data[0]);
-    else { setSelectedStage(null); setTasks([]); }
+    
+    // Auto-select the first stage, OR update the selected stage if it was edited
+    if (data.length > 0) {
+        if (selectedStage) {
+            const updatedSelectedStage = data.find(s => s.id === selectedStage.id);
+            setSelectedStage(updatedSelectedStage || data[0]);
+        } else {
+            setSelectedStage(data[0]);
+        }
+    } else { 
+        setSelectedStage(null); 
+        setTasks([]); 
+    }
   };
 
   useEffect(() => { if (selectedStage) pipelineApi.getTaskTemplates(selectedStage.id).then(setTasks); }, [selectedStage]);
@@ -147,7 +166,7 @@ export default function AdminPipelineBuilder() {
 
   const handleSaveNewStage = async () => {
     if (!newStageName.trim()) return;
-    await pipelineApi.saveStage({ name: newStageName, version_id: selectedVersion.id });
+    await pipelineApi.saveStage({ name: newStageName, version_id: selectedVersion.id, stage_briefing_text: '' });
     setNewStageName(''); setIsAddingStage(false); loadStages();
   };
 
@@ -157,8 +176,9 @@ export default function AdminPipelineBuilder() {
 
   const handleSaveStageEdit = async (id) => {
     if (!stageNameInput.trim()) return;
-    await pipelineApi.updateStage(id, stageNameInput);
-    setIsEditingStage(null); loadStages();
+    await pipelineApi.updateStage(id, stageNameInput, stageBriefingInput);
+    setIsEditingStage(null); 
+    loadStages();
   };
 
   const parseOffset = (days) => {
@@ -175,7 +195,7 @@ export default function AdminPipelineBuilder() {
         ...task, delay_value: val, delay_unit: unit,
         execution_type: task.execution_type || 'human',
         ai_guidance: task.ai_guidance || '', failure_action: task.failure_action || 'none',
-        resource_text: task.override_script || task.resource_text || '', // handle legacy mapped names
+        resource_text: task.override_script || task.resource_text || '', 
         media_url: task.media_url || ''
       });
     } else {
@@ -325,21 +345,38 @@ export default function AdminPipelineBuilder() {
                   <button onClick={(e) => moveStage(e, idx, -1)} disabled={idx === 0} className="hover:text-indigo-600 disabled:opacity-20"><ChevronUp className="w-4 h-4" /></button>
                   <button onClick={(e) => moveStage(e, idx, 1)} disabled={idx === stages.length - 1} className="hover:text-indigo-600 disabled:opacity-20"><ChevronDown className="w-4 h-4" /></button>
                 </div>
-                <div className="flex-1 flex justify-between items-center">
-                  <div onClick={() => setSelectedStage(stage)} className="flex-1 flex items-center cursor-pointer">
+                <div className="flex-1 flex justify-between items-start">
+                  <div onClick={() => setSelectedStage(stage)} className="flex-1 flex flex-col cursor-pointer mt-0.5">
                     {isEditingStage === stage.id ? (
-                      <div className="flex w-full pr-2" onClick={(e) => e.stopPropagation()}>
-                        <input autoFocus value={stageNameInput} onChange={(e) => setStageNameInput(e.target.value)} className="border rounded px-2 py-1 text-sm outline-none w-full" />
-                        <button onClick={() => handleSaveStageEdit(stage.id)} className="ml-2 text-green-600"><Check className="w-4 h-4" /></button>
-                        <button onClick={() => setIsEditingStage(null)} className="ml-1 text-gray-400"><X className="w-4 h-4" /></button>
+                      <div className="flex flex-col w-full pr-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Stage Name</label>
+                        <input autoFocus value={stageNameInput} onChange={(e) => setStageNameInput(e.target.value)} className="border rounded px-2 py-1 text-sm outline-none w-full border-indigo-300" />
+                        
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mt-2">Tactical Stage Briefing (Agent Mindset)</label>
+                        <textarea 
+                          value={stageBriefingInput} 
+                          onChange={(e) => setStageBriefingInput(e.target.value)} 
+                          className="border rounded px-2 py-2 text-xs outline-none w-full border-indigo-300 min-h-[150px]" 
+                          placeholder="⚔️ Realization wins deals. The demo simply confirms what they already realized..."
+                        />
+                        
+                        <div className="flex justify-end space-x-2 pt-2">
+                           <button onClick={() => setIsEditingStage(null)} className="text-gray-400 bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded text-xs font-bold transition-colors">Cancel</button>
+                           <button onClick={() => handleSaveStageEdit(stage.id)} className="text-white bg-green-500 hover:bg-green-600 px-3 py-1 rounded text-xs font-bold transition-colors flex items-center"><Check className="w-3 h-3 mr-1" /> Save Stage</button>
+                        </div>
                       </div>
                     ) : (
-                      <span className="font-bold text-gray-800 text-sm">{stage.name}</span>
+                      <>
+                         <span className="font-bold text-gray-800 text-sm">{stage.name}</span>
+                         {stage.stage_briefing_text && (
+                            <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-1 bg-indigo-50 px-1.5 py-0.5 rounded w-max">Has Briefing Text</span>
+                         )}
+                      </>
                     )}
                   </div>
                   {isEditingStage !== stage.id && (
-                    <div className="flex space-x-1 opacity-60 hover:opacity-100 transition">
-                      <button onClick={(e) => { e.stopPropagation(); setStageNameInput(stage.name); setIsEditingStage(stage.id); }} className="p-1.5 hover:bg-gray-100 rounded text-gray-500"><Edit className="w-4 h-4" /></button>
+                    <div className="flex space-x-1 opacity-60 hover:opacity-100 transition h-max">
+                      <button onClick={(e) => { e.stopPropagation(); setStageNameInput(stage.name); setStageBriefingInput(stage.stage_briefing_text || ''); setIsEditingStage(stage.id); }} className="p-1.5 hover:bg-gray-100 rounded text-gray-500"><Edit className="w-4 h-4" /></button>
                       <button onClick={(e) => { e.stopPropagation(); handleDeleteStage(stage.id); }} className="p-1.5 hover:bg-red-50 rounded text-red-500"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   )}
