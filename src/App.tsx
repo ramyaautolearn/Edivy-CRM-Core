@@ -14,8 +14,9 @@ import {
   Activity,
   FolderOpen,
   Calendar,
-  Briefcase, // <-- Added for Onboarding Desk
-  Settings   // <-- Added for E3 Onboarding Builder
+  Briefcase,
+  Settings,
+  Radar // <-- NEW: Added Radar icon for E0 Prospecting
 } from 'lucide-react';
 
 // ==========================================
@@ -32,8 +33,9 @@ import AdminAgents from './components/AdminAgents';
 import AgentAnalytics from './components/AgentAnalytics'; 
 import MediaVault from './components/MediaVault'; 
 import MeetingCalendar from './components/MeetingCalendar';
-import OnboardingDesk from './components/OnboardingDesk'; // <-- NEW: E3 Command Center
-import E3OnboardingBuilder from './components/E3OnboardingBuilder'; // <-- NEW: E3 Builder
+import OnboardingDesk from './components/OnboardingDesk';
+import E3OnboardingBuilder from './components/E3OnboardingBuilder';
+import ProspectingDesk from './components/ProspectingDesk'; // <-- NEW: E0 Prospecting Desk
 
 // ==========================================
 // 2. YOUR REAL FIREBASE RECONNECTED!
@@ -184,9 +186,11 @@ export default function App() {
   // YOUR REAL COMPONENTS ARE PLUGGED BACK IN HERE
   const renderContent = () => {
     switch (activeTab) {
+      case 'e0-prospecting': // <-- NEW ROUTE
+        return <ProspectingDesk user={user} />;
       case 'e2-command-center':
         return <E2CommandCenter user={user} />; 
-      case 'onboarding-desk': // <-- NEW ROUTE
+      case 'onboarding-desk':
         return <OnboardingDesk user={user} />;
       case 'control-tower':
         return <ControlTower />;
@@ -200,7 +204,7 @@ export default function App() {
         return <PipelineBuilder />;
       case 'nurture-builder':
         return <NurtureBuilder />;
-      case 'e3-builder': // <-- NEW ROUTE
+      case 'e3-builder':
         return <E3OnboardingBuilder />;
       case 'script-library':
         return <ScriptLibrary />;
@@ -245,14 +249,23 @@ export default function App() {
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 mt-2 px-3">
                 Executive
               </p>
+              
+              {/* NEW: E0 Prospecting Desk Sidebar Link */}
               <SidebarItem
-              icon={<Droplets />}
-              label="E2 Command Center"
-              id="e2-command-center"
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
+                icon={<Radar />}
+                label="E0 Prospecting Desk"
+                id="e0-prospecting"
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+              />
+
+              <SidebarItem
+                icon={<Droplets />}
+                label="E2 Command Center"
+                id="e2-command-center"
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
               />  
-              {/* NEW: Onboarding Desk Sidebar Link */}
               <SidebarItem
                 icon={<Briefcase />}
                 label="Onboarding Desk"
@@ -315,7 +328,6 @@ export default function App() {
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
-              {/* NEW: E3 Onboarding Builder Sidebar Link */}
               <SidebarItem
                 icon={<Settings />}
                 label="E3: Onboarding Builder"
