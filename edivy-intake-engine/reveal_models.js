@@ -1,5 +1,4 @@
-require('dotenv').config();
-const API_KEY = process.env.GEMINI_API_KEY;
+const API_KEY = "AQ.Ab8RN6IxpqbkP-HJfYyj_R63Oa3xtYU9wQ8OqxqP5RspDwiJ4A";
 const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`;
 
 async function interrogateGoogle() {

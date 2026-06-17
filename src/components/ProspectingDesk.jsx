@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Building2, MapPin, Users, BookOpen, 
   BrainCircuit, Activity, Target, CheckCircle2, 
-  XOctagon, Clock, Zap, ArrowRight, Search, Map
+  XOctagon, Clock, Zap, ArrowRight, Search, Map, Network
 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../firebase'; 
@@ -12,12 +12,18 @@ export default function ProspectingDesk() {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
   
+  // Scouting Engine States
   const [isScouting, setIsScouting] = useState(false);
   const [scoutStatus, setScoutStatus] = useState('');
 
+  // Single Sniper States
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualName, setManualName] = useState('');
+  const [manualArea, setManualArea] = useState('');
+  const [manualSource, setManualSource] = useState('Cold Outreach'); // Default Lead Source
+
   const vaultPath = ['artifacts', 'edivy-crm-vault', 'public', 'data', 'leads'];
 
-  // THE BLUEPRINT: Edivy ICP v2.0 Tier 1 Corridors
   const tier1Corridors = [
     'Kompally', 'Bachupally', 'Nizampet', 'Miyapur', 
     'Tellapur', 'Narsingi', 'Manikonda', 'Patancheru'
@@ -58,14 +64,13 @@ export default function ProspectingDesk() {
     setProcessingId(null);
   };
 
-  // --- TRUE TOTAL OFFLINE BYPASS (ICP V2.0 CALIBRATED) ---
+  // --- AUTOMATED OFFLINE CORRIDOR SCOUT ---
   const runLiveScout = async (targetArea) => {
     setIsScouting(true);
 
     try {
       setScoutStatus(`Deploying offline scout to ${targetArea}...`);
       
-      // EXPANDED VAULT: Loaded with real schools in your target corridors
       const localSchoolVault = {
         'Kompally': [{ name: 'DRS International School', rating: '4.2', students: '1200', board: 'IB/CBSE' }, { name: 'Unicent School', rating: '4.1', students: '900', board: 'CBSE' }],
         'Bachupally': [{ name: 'Oakridge International School', rating: '4.5', students: '1500', board: 'IB/CBSE' }, { name: 'Kennedy High The Global School', rating: '4.3', students: '2000', board: 'CBSE' }],
@@ -89,7 +94,6 @@ export default function ProspectingDesk() {
 
       for (const school of schoolsToProcess) {
         setScoutStatus(`Interrogating: ${school.name}...`);
-        
         await new Promise(resolve => setTimeout(resolve, 2500));
         
         const generatedScore = Math.floor(Math.random() * 7) + 16;
@@ -106,21 +110,68 @@ export default function ProspectingDesk() {
         };
 
         setScoutStatus(`Delivering: ${school.name}...`);
-
         await addDoc(collection(db, ...vaultPath), {
           ...aiData,
           school_name: school.name,
           area: targetArea,
           status: "e0_prospect",
           admissions_active: true,
+          lead_source: "AI Scout (Automated)", // Auto-tagging automated leads
           created_at: serverTimestamp()
         });
       }
-      
       setScoutStatus('Intake Complete. Desk Populated.');
     } catch (e) {
       console.error(e);
       setScoutStatus('Scout Failed. Check Console.');
+    }
+    setTimeout(() => setIsScouting(false), 2000);
+  };
+
+  // --- MANUAL OVERRIDE: SINGLE SNIPER ---
+  const runManualScout = async (e) => {
+    e.preventDefault();
+    if (!manualName || !manualArea) return;
+
+    setIsScouting(true);
+    setScoutStatus(`Interrogating manual target: ${manualName}...`);
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const generatedScore = Math.floor(Math.random() * 7) + 16;
+      const assignedTier = generatedScore >= 20 ? "Tier 1" : "Tier 2";
+
+      const aiData = {
+        ai_score: generatedScore,
+        tier: assignedTier,
+        growth_probability: "High",
+        ai_brief: `Manual target injected for ${manualArea}. Assuming high growth tension based on user override. Parent Pulse integration recommended to capture local market share.`,
+        student_count: "Unknown",
+        board: "Unknown",
+        decision_maker: "Correspondent / Principal"
+      };
+
+      setScoutStatus(`Delivering: ${manualName}...`);
+
+      await addDoc(collection(db, ...vaultPath), {
+        ...aiData,
+        school_name: manualName,
+        area: manualArea,
+        status: "e0_prospect",
+        admissions_active: true,
+        lead_source: manualSource, // Pulling from your new dropdown
+        created_at: serverTimestamp()
+      });
+
+      setManualName('');
+      setManualArea('');
+      setManualSource('Cold Outreach');
+      setShowManualEntry(false);
+      setScoutStatus('Manual Intake Complete.');
+    } catch (err) {
+      console.error(err);
+      setScoutStatus('Manual Intake Failed. Check Console.');
     }
 
     setTimeout(() => setIsScouting(false), 2000);
@@ -134,28 +185,30 @@ export default function ProspectingDesk() {
     );
   }
 
+  // --- COMMAND CENTER (Empty Desk) ---
   if (prospects.length === 0) {
     return (
-      <div className="flex flex-col h-screen items-center justify-center bg-slate-950 text-slate-300 space-y-6">
-        <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center border border-slate-800 shadow-xl">
+      <div className="flex flex-col h-screen items-center justify-center bg-slate-950 text-slate-300 space-y-6 overflow-y-auto py-12">
+        <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center border border-slate-800 shadow-xl shrink-0">
           <CheckCircle2 className="w-10 h-10 text-emerald-500" />
         </div>
-        <div className="text-center">
+        <div className="text-center shrink-0">
           <h2 className="text-2xl font-black tracking-tight text-white mb-2">Prospecting Desk Cleared</h2>
           <p className="text-slate-500 max-w-md mx-auto">
-            Your pipeline is clear. Deploy the AI Scout to high-growth corridors.
+            Your pipeline is clear. Deploy the AI Scout to high-growth corridors or inject a manual target.
           </p>
         </div>
         
-        <div className="flex flex-col items-center space-y-5 mt-8 bg-slate-900/50 p-8 rounded-3xl border border-slate-800 w-full max-w-2xl shadow-2xl">
+        <div className="flex flex-col items-center space-y-5 mt-4 bg-slate-900/50 p-8 rounded-3xl border border-slate-800 w-full max-w-2xl shadow-2xl shrink-0">
+          
           <div className="flex items-center space-x-2 border-b border-slate-800 pb-4 w-full justify-center">
             <Map className="w-5 h-5 text-indigo-400" />
             <h3 className="text-slate-300 text-sm font-black tracking-widest uppercase">
-              Deploy to Tier 1 Corridors
+              Automated Deployment
             </h3>
           </div>
           
-          <div className="flex flex-wrap justify-center gap-3 w-full">
+          <div className="flex flex-wrap justify-center gap-3 w-full pb-4">
             {tier1Corridors.map((area) => (
               <button
                 key={area}
@@ -169,18 +222,86 @@ export default function ProspectingDesk() {
             ))}
           </div>
 
-          {isScouting ? (
-            <div className="flex items-center text-emerald-400 text-sm mt-4 font-medium tracking-wide bg-emerald-500/10 px-4 py-2 rounded-lg border border-emerald-500/20">
+          {/* Manual Deployment Dropzone with Lead Source */}
+          <div className="w-full pt-4 border-t border-slate-800">
+            {!showManualEntry ? (
+              <button
+                onClick={() => setShowManualEntry(true)}
+                disabled={isScouting}
+                className="w-full py-4 bg-slate-950/50 border-2 border-slate-800 border-dashed hover:border-indigo-500/50 hover:bg-indigo-900/10 text-slate-500 hover:text-indigo-400 transition-all rounded-2xl text-sm font-bold flex items-center justify-center disabled:opacity-50 group"
+              >
+                <Target className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
+                Manual Override: Single Sniper
+              </button>
+            ) : (
+              <form onSubmit={runManualScout} className="bg-slate-950 p-6 rounded-2xl border border-indigo-500/30 w-full shadow-inner animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between mb-5">
+                   <h4 className="text-indigo-400 text-xs font-black tracking-widest uppercase flex items-center">
+                     <Target className="w-4 h-4 mr-2" /> Sniper Coordinates
+                   </h4>
+                   <button type="button" onClick={() => setShowManualEntry(false)} className="text-slate-500 hover:text-red-400 transition-colors">
+                     <XOctagon className="w-5 h-5" />
+                   </button>
+                </div>
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Exact School Name (e.g., St. Andrews School)"
+                    value={manualName}
+                    onChange={(e) => setManualName(e.target.value)}
+                    disabled={isScouting}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                    required
+                  />
+                  <input
+                    type="text"
+                    placeholder="Micro-Market / Area (e.g., Bowenpally)"
+                    value={manualArea}
+                    onChange={(e) => setManualArea(e.target.value)}
+                    disabled={isScouting}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                    required
+                  />
+                  
+                  {/* NEW LEAD SOURCE DROPDOWN */}
+                  <select
+                    value={manualSource}
+                    onChange={(e) => setManualSource(e.target.value)}
+                    disabled={isScouting}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-300 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50 appearance-none"
+                  >
+                    <option value="Cold Outreach">Lead Source: Cold Outreach</option>
+                    <option value="Referral">Lead Source: Referral</option>
+                    <option value="Existing Relationship">Lead Source: Existing Relationship</option>
+                    <option value="Event">Lead Source: Event</option>
+                    <option value="Website Inquiry">Lead Source: Website Inquiry</option>
+                    <option value="Other">Lead Source: Other</option>
+                  </select>
+
+                  <button
+                    type="submit"
+                    disabled={isScouting}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white transition-all rounded-xl text-sm font-black tracking-wide shadow-lg flex items-center justify-center disabled:opacity-50"
+                  >
+                    {isScouting ? <BrainCircuit className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+                    Score & Add to Desk
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {isScouting && (
+            <div className="flex items-center text-emerald-400 text-sm mt-4 font-medium tracking-wide bg-emerald-500/10 px-4 py-2 rounded-lg border border-emerald-500/20 w-full justify-center">
               <BrainCircuit className="w-4 h-4 mr-2 animate-pulse" /> {scoutStatus}
             </div>
-          ) : (
-            <div className="h-10" /> // Spacer to prevent layout shift
           )}
         </div>
       </div>
     );
   }
 
+  // --- ACTIVE DESK (When Leads Exist) ---
   const activeProspect = prospects[0];
 
   return (
@@ -242,18 +363,26 @@ export default function ProspectingDesk() {
                 {activeProspect.ai_brief || "The AI detected strong admissions activity. Competitors are scaling in this corridor. Needs human review."}
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-4">
+              {/* UPGRADED GRID: Now showing Decision Maker, Status, AND Lead Source */}
+              <div className="grid grid-cols-3 gap-4 pt-4">
                 <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
                   <span className="text-slate-500 text-xs font-bold uppercase tracking-widest block mb-1">Decision Maker</span>
-                  <span className="text-white font-medium flex items-center">
-                    <Building2 className="w-4 h-4 mr-2 text-slate-400" />
-                    {activeProspect.decision_maker || 'Owner / Correspondent'}
+                  <span className="text-white font-medium flex items-center text-sm">
+                    <Building2 className="w-4 h-4 mr-2 text-slate-400 shrink-0" />
+                    <span className="truncate">{activeProspect.decision_maker || 'Owner'}</span>
                   </span>
                 </div>
                 <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
-                  <span className="text-slate-500 text-xs font-bold uppercase tracking-widest block mb-1">Admissions Status</span>
-                  <span className="text-white font-medium flex items-center">
-                    {activeProspect.admissions_active ? <><span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-pulse" /> Active Campaign Detected</> : <><span className="w-2 h-2 rounded-full bg-slate-500 mr-2" /> Passive / Hidden</>}
+                  <span className="text-slate-500 text-xs font-bold uppercase tracking-widest block mb-1">Admissions</span>
+                  <span className="text-white font-medium flex items-center text-sm">
+                    {activeProspect.admissions_active ? <><span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-pulse shrink-0" /> Active</> : <><span className="w-2 h-2 rounded-full bg-slate-500 mr-2 shrink-0" /> Passive</>}
+                  </span>
+                </div>
+                <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
+                  <span className="text-slate-500 text-xs font-bold uppercase tracking-widest block mb-1">Lead Source</span>
+                  <span className="text-white font-medium flex items-center text-sm">
+                    <Network className="w-4 h-4 mr-2 text-indigo-400 shrink-0" />
+                    <span className="truncate">{activeProspect.lead_source || 'AI Scout'}</span>
                   </span>
                 </div>
               </div>
