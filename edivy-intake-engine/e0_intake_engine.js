@@ -1,10 +1,9 @@
-require('dotenv').config();
 const axios = require('axios');
 
 // API KEYS
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
-const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID;
+const GEMINI_API_KEY = "HIDDEN";
+const GOOGLE_PLACES_API_KEY = "HIDDEN";
+const FIREBASE_PROJECT_ID = "HIDDEN";
 
 async function runIntakeEngine() {
   console.log("Starting Intake Engine (via Axios)...");

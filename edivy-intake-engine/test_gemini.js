@@ -1,5 +1,4 @@
-require('dotenv').config();
-const API_KEY = process.env.GEMINI_API_KEY;
+const API_KEY = "AQ.Ab8RN6IxpqbkP-HJfYyj_R63Oa3xtYU9wQ8OqxqP5RspDwiJ4A";
 
 // We target the explicit, hardcoded Google URL. No SDK routing allowed.
 const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
