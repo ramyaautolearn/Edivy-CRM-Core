@@ -211,7 +211,6 @@ export default function AdminPipelineBuilder() {
     setIsTaskFormOpen(true);
   };
 
-  // --- SAFE LIVE GROQ AI GENERATOR ---
   const handleGenerateAIPreview = async () => {
     if (!newTask.ai_guidance.trim()) return alert("Please enter instructions in the AI Guidance box first!");
     
@@ -220,7 +219,6 @@ export default function AdminPipelineBuilder() {
 
     setIsGenerating(true);
     try {
-      // Instantiated safely only when the action executes
       const groq = new OpenAI({
         apiKey: apiKey,
         baseURL: "https://api.groq.com/openai/v1",
@@ -228,14 +226,13 @@ export default function AdminPipelineBuilder() {
       });
 
       const prompt = `
-        You are an elite B2B SaaS sales copywriter for Edivy (a premium CRM and communication platform for schools).
+        You are an elite B2B SaaS sales copywriter or strategic researcher for Edivy.
+        Based on the following guidance, write a highly structured task layout, diagnostic framework, or consultative outreach script.
+        Use {contact_name} for the prospect's name if applicable. 
         
-        Based on the following guidance, write a highly-converting, concise script.
-        Use {contact_name} for the prospect's name. No fluff, no aggressive corporate jargon. Be consultative.
-
         Guidance: "${newTask.ai_guidance}"
 
-        Please provide ONLY the script text. Do not include any explanations or quotes around it.
+        Provide ONLY the clean output text. Do not include any meta-explanations.
       `;
 
       const response = await groq.chat.completions.create({
@@ -249,7 +246,7 @@ export default function AdminPipelineBuilder() {
       
     } catch (error) {
       console.error("Groq AI Error:", error);
-      alert("Failed to generate AI script. Please check your API Key and terminal logs.");
+      alert("Failed to generate AI content. Please check your API Key.");
     } finally {
       setIsGenerating(false);
     }
@@ -572,34 +569,33 @@ export default function AdminPipelineBuilder() {
                 </div>
               </div>
 
-              {newTask.type !== 'research' && (
-                <div className="bg-purple-50/30 border border-purple-100 rounded-2xl p-6 shadow-sm">
-                  <h4 className="font-black text-purple-900 text-sm flex items-center mb-4">
-                    <Bot className="w-5 h-5 mr-2 text-purple-500" /> AI Auto-Pilot & Approved Scripts
-                  </h4>
-                  
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="flex flex-col">
-                       <label className="block text-[9px] font-black uppercase tracking-widest text-purple-600 mb-2">1. AI Guidance Prompt (The Brain)</label>
-                       <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/50 outline-none focus:border-purple-500 min-h-[160px] shadow-sm mb-3" placeholder="e.g., Review the pain point collected. Write a casual 2-sentence reply offering a demo to solve it..." />
-                       <button type="button" onClick={handleGenerateAIPreview} disabled={isGenerating || !newTask.ai_guidance} className="w-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-3.5 rounded-xl shadow-md hover:bg-purple-700 transition flex items-center justify-center disabled:opacity-50">
-                         {isGenerating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating...</> : <><Sparkles className="w-4 h-4 mr-2" /> Test AI Generation</>}
-                       </button>
-                    </div>
-
-                    <div className="flex flex-col">
-                       <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">2. Approved Manual Script (The Output)</label>
-                       <textarea value={newTask.resource_text} onChange={(e) => setNewTask({ ...newTask, resource_text: e.target.value })} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white outline-none focus:border-indigo-500 flex-1 min-h-[160px] shadow-sm" placeholder="Hi {contact_name}, here is the info you requested..." />
-                       <p className="text-[9px] font-bold text-slate-400 mt-3 text-center uppercase tracking-widest">If Execution Type is Human, agents will just copy this box.</p>
-                    </div>
+              {/* WALL REMOVED: Section now triggers universally for all types, including manual research */}
+              <div className="bg-purple-50/30 border border-purple-100 rounded-2xl p-6 shadow-sm">
+                <h4 className="font-black text-purple-900 text-sm flex items-center mb-4">
+                  <Bot className="w-5 h-5 mr-2 text-purple-500" /> AI Auto-Pilot & Approved Frameworks
+                </h4>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="flex flex-col">
+                     <label className="block text-[9px] font-black uppercase tracking-widest text-purple-600 mb-2">1. AI Guidance Prompt (The Brain)</label>
+                     <textarea value={newTask.ai_guidance} onChange={(e) => setNewTask({ ...newTask, ai_guidance: e.target.value })} className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm bg-purple-50/50 outline-none focus:border-purple-500 min-h-[160px] shadow-sm mb-3" placeholder="e.g., Review the collected data points. Direct the agent on what exact operational vulnerabilities to check on this school's portal..." />
+                     <button type="button" onClick={handleGenerateAIPreview} disabled={isGenerating || !newTask.ai_guidance} className="w-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-3.5 rounded-xl shadow-md hover:bg-purple-700 transition flex items-center justify-center disabled:opacity-50">
+                       {isGenerating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating...</> : <><Sparkles className="w-4 h-4 mr-2" /> Test AI Generation</>}
+                     </button>
                   </div>
 
-                  <div className="mt-6 pt-5 border-t border-purple-100">
-                     <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center"><LinkIcon className="w-3 h-3 mr-1" /> External Media Attachment (URL)</label>
-                     <input type="text" value={newTask.media_url} onChange={(e) => setNewTask({ ...newTask, media_url: e.target.value })} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white shadow-sm outline-none focus:border-purple-400" placeholder="https://link-to-video-or-pdf.com" />
+                  <div className="flex flex-col">
+                     <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">2. Approved Master Template / Reference Script (The Output)</label>
+                     <textarea value={newTask.resource_text} onChange={(e) => setNewTask({ ...newTask, resource_text: e.target.value })} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white outline-none focus:border-indigo-500 flex-1 min-h-[160px] shadow-sm" placeholder="Framework details or standard backup procedures go here..." />
+                     <p className="text-[9px] font-bold text-slate-400 mt-3 text-center uppercase tracking-widest">If Execution Type is Human, agents will look at this box for instructions.</p>
                   </div>
                 </div>
-              )}
+
+                <div className="mt-6 pt-5 border-t border-purple-100">
+                   <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center"><LinkIcon className="w-3 h-3 mr-1" /> External Media Attachment / Document URL</label>
+                   <input type="text" value={newTask.media_url} onChange={(e) => setNewTask({ ...newTask, media_url: e.target.value })} className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white shadow-sm outline-none focus:border-purple-400" placeholder="https://link-to-video-or-pdf.com" />
+                </div>
+              </div>
 
               {/* Conditional Outcomes Branching */}
               <div className="bg-blue-50 rounded-2xl p-6 border border-blue-200 shadow-sm">
