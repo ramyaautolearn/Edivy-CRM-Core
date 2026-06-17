@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import OpenAI from 'openai'; // <-- GROQ AI INTACT
+import OpenAI from 'openai';
 
 const appId = 'edivy-crm-vault';
 const pipelineDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'pipelines', 'active');
@@ -48,7 +48,6 @@ const pipelineApi = {
     });
     await updateDoc(pipelineDocRef, { stages: data.stages, updated_at: serverTimestamp() });
   },
-  // UPDATED: Saves name, briefing, insights, and fast-tracks
   updateStage: async (updatedStage) => {
     const data = await getDbData();
     const idx = (data.stages || []).findIndex(s => s.id === updatedStage.id);
@@ -99,25 +98,14 @@ export default function AdminPipelineBuilder() {
   const [selectedStage, setSelectedStage] = useState(null);
   const [tasks, setTasks] = useState([]);
   
-  // Stage Edit States (Upgraded for Insights & Fast Tracks)
   const [isEditingStage, setIsEditingStage] = useState(null);
   const [editingStageData, setEditingStageData] = useState(null);
   
   const [isAddingStage, setIsAddingStage] = useState(false);
   const [newStageName, setNewStageName] = useState('');
 
-  // AI State
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Initialize Groq AI
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  const groq = new OpenAI({
-    apiKey: apiKey,
-    baseURL: "https://api.groq.com/openai/v1",
-    dangerouslyAllowBrowser: true 
-  });
-
-  // Task Edit States (Upgraded for Branching)
   const [newTask, setNewTask] = useState({
     id: null, title: '', description: '', execution_type: 'human', is_mandatory: true,
     delay_value: 0, delay_unit: 'minutes', type: 'whatsapp', priority: 2,
@@ -181,7 +169,6 @@ export default function AdminPipelineBuilder() {
     if (window.confirm('Delete this stage and all its tasks?')) { await pipelineApi.deleteStage(id); if (selectedStage?.id === id) setSelectedStage(null); loadStages(); }
   };
 
-  // --- STAGE EDITOR FUNCTIONS ---
   const openStageEditor = (stage) => {
     setIsEditingStage(stage.id);
     setEditingStageData({ ...stage, required_insights: stage.required_insights || [], fast_tracks: stage.fast_tracks || [] });
@@ -195,7 +182,6 @@ export default function AdminPipelineBuilder() {
     loadStages();
   };
 
-  // --- TASK EDITOR FUNCTIONS ---
   const parseOffset = (days) => {
     if (days === 0) return { val: 0, unit: 'minutes' };
     if (days < 1 / 24) return { val: Math.round(days * 24 * 60), unit: 'minutes' };
@@ -225,13 +211,22 @@ export default function AdminPipelineBuilder() {
     setIsTaskFormOpen(true);
   };
 
-  // --- LIVE GROQ AI GENERATOR ---
+  // --- SAFE LIVE GROQ AI GENERATOR ---
   const handleGenerateAIPreview = async () => {
     if (!newTask.ai_guidance.trim()) return alert("Please enter instructions in the AI Guidance box first!");
+    
+    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
     if (!apiKey) return alert("Missing API Key! Ensure VITE_GROQ_API_KEY is in your .env file.");
 
     setIsGenerating(true);
     try {
+      // Instantiated safely only when the action executes
+      const groq = new OpenAI({
+        apiKey: apiKey,
+        baseURL: "https://api.groq.com/openai/v1",
+        dangerouslyAllowBrowser: true 
+      });
+
       const prompt = `
         You are an elite B2B SaaS sales copywriter for Edivy (a premium CRM and communication platform for schools).
         
@@ -433,10 +428,6 @@ export default function AdminPipelineBuilder() {
         </div>
       </div>
 
-      {/* =========================================
-          MODALS
-      ========================================= */}
-
       {/* STAGE EDITOR MODAL */}
       {isEditingStage && editingStageData && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -458,7 +449,7 @@ export default function AdminPipelineBuilder() {
                 </div>
               </div>
 
-              {/* Data Insights (The Context Engine) */}
+              {/* Required Insights */}
               <div className="bg-amber-50 rounded-2xl p-5 border border-amber-200 shadow-sm">
                 <div className="flex justify-between items-center mb-4 border-b border-amber-200/50 pb-3">
                   <div>
@@ -502,7 +493,7 @@ export default function AdminPipelineBuilder() {
                           const newArr = [...editingStageData.fast_tracks]; newArr[idx].target_stage_id = e.target.value; setEditingStageData({...editingStageData, fast_tracks: newArr});
                       }} className="w-1/3 bg-white border border-emerald-200 p-2.5 rounded-lg font-bold text-[10px] uppercase tracking-widest outline-none focus:border-emerald-400 shadow-sm">
                         <option value="">Jump To...</option>
-                        {stages.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
 
                       <button onClick={() => {
@@ -617,7 +608,7 @@ export default function AdminPipelineBuilder() {
                     <h4 className="font-black text-blue-900 flex items-center text-sm"><GitBranch className="w-5 h-5 mr-2 text-blue-600" /> Conditional Outcomes (Branching Logic)</h4>
                     <p className="text-[10px] uppercase tracking-widest text-blue-700/70 font-bold mt-1">Force the agent to log the outcome of this action to trigger the next move.</p>
                   </div>
-                  <button type="button" onClick={() => setNewTask({...newTask, outcomes: [...newTask.outcomes, { label: '', action: 'next_task', target_stage_id: '' }]})} className="bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center shadow-sm"><Plus className="w-3.5 h-3.5 mr-1"/> Add Branch</button>
+                  <button type="button" onClick={() => setNewTask({...newTask, outcomes: [...newTask.outcomes, { label: '', action: 'next_task', target_stage_id: '', target_task_id: '' }]})} className="bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center shadow-sm"><Plus className="w-3.5 h-3.5 mr-1"/> Add Branch</button>
                 </div>
                 
                 <div className="space-y-3">
@@ -632,18 +623,29 @@ export default function AdminPipelineBuilder() {
                           <label className="block text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Then Do This:</label>
                           <select value={outcome.action} onChange={e => { const newArr = [...newTask.outcomes]; newArr[idx].action = e.target.value; setNewTask({...newTask, outcomes: newArr}); }} className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg font-bold text-[10px] uppercase tracking-widest outline-none focus:border-blue-400 cursor-pointer">
                             <option value="next_task">Continue Next Task</option>
+                            <option value="jump_task">Skip to Specific Task</option>
                             <option value="jump_stage">Jump to Stage</option>
                             <option value="eject_e2">Eject to Nurture (E2)</option>
                             <option value="kill">Kill Lead (Archive)</option>
                           </select>
                       </div>
 
+                      {outcome.action === 'jump_task' && (
+                        <div className="w-1/3">
+                            <label className="block text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Target Task:</label>
+                            <select value={outcome.target_task_id || ''} onChange={e => { const newArr = [...newTask.outcomes]; newArr[idx].target_task_id = e.target.value; setNewTask({...newTask, outcomes: newArr}); }} className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg font-bold text-[10px] uppercase tracking-widest outline-none focus:border-blue-400 cursor-pointer">
+                              <option value="">Select Target Task</option>
+                              {tasks.map(t => <option key={t.id} value={t.id}>{t.title || t.name}</option>)}
+                            </select>
+                        </div>
+                      )}
+
                       {outcome.action === 'jump_stage' && (
                         <div className="w-1/3">
                             <label className="block text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Target Stage:</label>
-                            <select value={outcome.target_stage_id} onChange={e => { const newArr = [...newTask.outcomes]; newArr[idx].target_stage_id = e.target.value; setNewTask({...newTask, outcomes: newArr}); }} className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg font-bold text-[10px] uppercase tracking-widest outline-none focus:border-blue-400 cursor-pointer">
+                            <select value={outcome.target_stage_id || ''} onChange={e => { const newArr = [...newTask.outcomes]; newArr[idx].target_stage_id = e.target.value; setNewTask({...newTask, outcomes: newArr}); }} className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg font-bold text-[10px] uppercase tracking-widest outline-none focus:border-blue-400 cursor-pointer">
                               <option value="">Select Stage</option>
-                              {stages.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                              {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                             </select>
                         </div>
                       )}

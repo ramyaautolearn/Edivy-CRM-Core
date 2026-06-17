@@ -1,9 +1,9 @@
 const axios = require('axios');
 
 // API KEYS
-const GEMINI_API_KEY = "HIDDEN";
-const GOOGLE_PLACES_API_KEY = "HIDDEN";
-const FIREBASE_PROJECT_ID = "HIDDEN";
+const GEMINI_API_KEY = "AQ.Ab8RN6IxpqbkP-HJfYyj_R63Oa3xtYU9wQ8OqxqP5RspDwiJ4A";
+const GOOGLE_PLACES_API_KEY = "AIzaSyA1eI-WUMKKWetgN5ZWAjzXPF6OU4xS984";
+const FIREBASE_PROJECT_ID = "edivy-crm-core";
 
 async function runIntakeEngine() {
   console.log("Starting Intake Engine (via Axios)...");

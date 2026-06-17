@@ -16,7 +16,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   
   // Navigation & UI State
   const [activeTab, setActiveTab] = useState('action_queue'); 
-  const [isFullScreen, setIsFullScreen] = useState(false); // NEW: Full Screen Mode Toggle
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const [showVault, setShowVault] = useState(false);
   const [showBriefing, setShowBriefing] = useState(false); 
   
@@ -32,7 +32,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [editEmail, setEditEmail] = useState(''); // NEW: Email added
+  const [editEmail, setEditEmail] = useState('');
 
   // Calendly State
   const [showCalendlyConfirm, setShowCalendlyConfirm] = useState(false);
@@ -128,7 +128,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
   // ==========================================
-  // CORE ACTIONS (Restored & Merged)
+  // CORE ACTIONS
   // ==========================================
   const clearRecentMoveFlag = async () => { if (selectedLead?.recent_move) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), { recent_move: null }); };
 
@@ -225,6 +225,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
     else toggleTaskCompletion(currentStageData.name, taskName);
   };
 
+  // --- UPDATED BRANCHING EXECUTION LOGIC ---
   const executeOutcome = async (outcome) => {
     const task = pendingOutcomeTask;
     setPendingOutcomeTask(null);
@@ -233,9 +234,31 @@ export default function DealRoomTab({ user, initialLeadId }) {
     if (outcome.action === 'jump_stage') {
       const targetStage = e1Pipeline?.stages?.find(s => s.id === outcome.target_stage_id);
       if (targetStage) await handleStageChange(targetStage.name);
-    } else if (outcome.action === 'eject_e2') {
+    } 
+    else if (outcome.action === 'jump_task') {
+      const targetTaskId = outcome.target_task_id;
+      if (targetTaskId && currentStageData && currentStageData.tasks) {
+          const targetTaskIndex = currentStageData.tasks.findIndex(t => t.id === targetTaskId);
+          const currentTaskIndex = currentStageData.tasks.findIndex(t => t.id === task.id);
+          
+          if (targetTaskIndex > -1 && targetTaskIndex > currentTaskIndex) {
+              const keysToUnlock = [];
+              for (let i = currentTaskIndex + 1; i <= targetTaskIndex; i++) {
+                  const tToUnlock = currentStageData.tasks[i];
+                  keysToUnlock.push(`${currentStageData.name}::${tToUnlock.name || tToUnlock.title}`);
+              }
+              setUnlockedTasks(prev => [...prev, ...keysToUnlock]);
+              setExpandedTaskId(targetTaskIndex);
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
+                logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `⚡ Branch Trigger: Skipped to Task "${currentStageData.tasks[targetTaskIndex].name || currentStageData.tasks[targetTaskIndex].title}"`, agent: user?.name || 'Agent' })
+              });
+          }
+      }
+    }
+    else if (outcome.action === 'eject_e2') {
       await ejectToE2(`Branch Trigger: ${outcome.label}`);
-    } else if (outcome.action === 'kill') {
+    } 
+    else if (outcome.action === 'kill') {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', selectedLead.id), {
         status: 'archived', archive_reason: `Rejected via Branch: ${outcome.label}`, last_activity_at: serverTimestamp(),
         logs: arrayUnion({ id: Date.now().toString(), date: new Date().toISOString(), type: 'System', text: `Lead Killed (Trigger: ${outcome.label})`, agent: user?.name || 'Agent' })
@@ -605,7 +628,6 @@ export default function DealRoomTab({ user, initialLeadId }) {
             {/* DEAL ROOM HEADER & CONTACT INFO */}
             <header className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-start bg-white z-10 shadow-sm gap-4 shrink-0 relative">
               
-              {/* NEW: Full Screen Toggle Button placed absolutely in top right */}
               <button 
                 onClick={() => setIsFullScreen(!isFullScreen)} 
                 className="absolute top-6 right-6 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 border border-slate-200 p-2 rounded-lg transition-colors shadow-sm z-20"
@@ -614,7 +636,7 @@ export default function DealRoomTab({ user, initialLeadId }) {
                 {isFullScreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
               </button>
 
-              <div className="pr-12"> {/* Added padding right to clear the absolute button */}
+              <div className="pr-12">
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedLead.school_name}</h2>
                 
                 {isEditingInfo ? (
