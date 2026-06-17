@@ -551,6 +551,7 @@ export default function AdminPipelineBuilder() {
                       <option value="whatsapp">WhatsApp Message</option>
                       <option value="email">Email Draft</option>
                       <option value="call">Phone Call</option>
+                      <option value="meeting">Meeting / Demo</option>
                       <option value="research">Manual Research / Admin Task</option>
                     </select>
                   </div>
