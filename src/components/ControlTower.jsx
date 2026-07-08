@@ -1,20 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Activity, Users, Zap, Clock, AlertTriangle, Target, GitMerge, CheckCircle, AlertCircle, BarChart3, MessageSquare, Filter, ArrowRight, MapPin, RefreshCw, Tag, Briefcase
+  Activity,
+  Users,
+  Zap,
+  Clock,
+  AlertTriangle,
+  Target,
+  GitMerge,
+  CheckCircle,
+  AlertCircle,
+  BarChart3,
+  MessageSquare,
+  Filter,
+  ArrowRight,
+  RefreshCw,
+  Tag,
+  Briefcase,
+  TrendingUp,
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import {
+  PageLayout,
+  PageHeader,
+  PageContent,
+  Card,
+  CardHeader,
+  Badge,
+  MetricCard,
+  ProgressBar,
+  SectionHeader,
+  AlertCard,
+  LoadingState,
+} from '../design-system';
 
 export default function ControlTower() {
   const [data, setData] = useState(null);
   const [rawLeads, setRawLeads] = useState(null);
   const [crmUsers, setCrmUsers] = useState({});
-  
+
   const appId = 'edivy-crm-vault';
 
-  // 1. ISOLATED DATABASE FETCHING
+  // 1. ISOLATED DATABASE FETCHING (UNCHANGED)
   useEffect(() => {
-    // Fetch Users to map Agent IDs to Names (With Fallback)
     const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
       const usersMap = {};
       if (!snap.empty) {
@@ -23,26 +51,24 @@ export default function ControlTower() {
         });
         setCrmUsers(usersMap);
       } else {
-        // Fallback if users haven't populated the artifacts collection yet
         onSnapshot(collection(db, 'users'), (rootSnap) => {
-           rootSnap.docs.forEach(d => {
-              usersMap[d.id] = d.data().name || d.data().full_name || d.data().email?.split('@')[0] || 'Unknown Agent';
-           });
-           setCrmUsers(usersMap);
+          rootSnap.docs.forEach(d => {
+            usersMap[d.id] = d.data().name || d.data().full_name || d.data().email?.split('@')[0] || 'Unknown Agent';
+          });
+          setCrmUsers(usersMap);
         });
       }
     });
 
-    // Fetch all Leads to aggregate real-time telemetry
     const unsubLeads = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), (snap) => {
       const fetchedLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setRawLeads(fetchedLeads);
     });
 
     return () => { unsubUsers(); unsubLeads(); };
-  }, []); // Run exactly once on mount
+  }, []);
 
-  // 2. ISOLATED TELEMETRY CALCULATION
+  // 2. ISOLATED TELEMETRY CALCULATION (UNCHANGED)
   useEffect(() => {
     if (rawLeads !== null) {
       calculateTelemetry(rawLeads, crmUsers);
@@ -52,22 +78,18 @@ export default function ControlTower() {
   const calculateTelemetry = (leads, usersMap) => {
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Core Engine Splits
     const e1Leads = leads.filter(l => l.engine === 1);
     const e2Leads = leads.filter(l => l.engine === 2);
     const e3Leads = leads.filter(l => l.engine === 3);
 
-    // 🔥 A. Immediate Attention Flags
     const untouchedHighScores = e1Leads.filter(l => l.score >= 80 && (!l.stage_name || l.stage_name === 'New Lead')).length;
     const hotLeads = e1Leads.filter(l => l.temperature === 'Hot').length;
     const pausedNurture = e2Leads.filter(l => l.next_follow_up && l.next_follow_up < todayStr).length;
 
-    // ⚡ B. Dynamic Pipeline Flow (E1 -> E3)
     const totalPipeline = e1Leads.length + e3Leads.length;
     const meetingScheduledCount = e1Leads.filter(l => l.is_demo_booked).length + e3Leads.length;
     const closedWonCount = e3Leads.length;
 
-    // Agent Effectiveness Calculation
     const agentStats = {};
     leads.forEach(l => {
       if (l.assigned_to) {
@@ -87,7 +109,6 @@ export default function ControlTower() {
       };
     }).sort((a, b) => b.handled - a.handled).slice(0, 3);
 
-    // Campaign / Source Fallback Calculation
     const sourceStats = {};
     leads.forEach(l => {
       const src = l.source || l.campaign || 'Organic / Unmapped';
@@ -104,18 +125,17 @@ export default function ControlTower() {
 
     const reactivatedLeads = leads.filter(l => l.resurrected_from_e2).length;
 
-    // 🚀 11. CORE PERFORMANCE METRICS DATA
     const performanceMetrics = {
-      leadFlow: { 
-        total: leads.length, 
-        assigned: leads.filter(l => l.assigned_to).length, 
-        e1: e1Leads.length, 
-        e2: e2Leads.length, 
-        e3: e3Leads.length 
+      leadFlow: {
+        total: leads.length,
+        assigned: leads.filter(l => l.assigned_to).length,
+        e1: e1Leads.length,
+        e2: e2Leads.length,
+        e3: e3Leads.length
       },
-      conversion: { 
-        e1Won: totalPipeline > 0 ? `${Math.round((closedWonCount / totalPipeline) * 100)}%` : '0%', 
-        overall: leads.length > 0 ? `${((closedWonCount / leads.length) * 100).toFixed(1)}%` : '0%' 
+      conversion: {
+        e1Won: totalPipeline > 0 ? `${Math.round((closedWonCount / totalPipeline) * 100)}%` : '0%',
+        overall: leads.length > 0 ? `${((closedWonCount / leads.length) * 100).toFixed(1)}%` : '0%'
       },
       nurture: {
         total: e2Leads.length,
@@ -132,344 +152,388 @@ export default function ControlTower() {
     });
   };
 
-  // RENDER LOADING SCREEN IF DATA IS NULL
-  if (!data) return (
-    <div className="p-10 flex flex-col items-center justify-center text-indigo-600 h-[calc(100vh-100px)]">
-      <Activity className="w-10 h-10 animate-pulse mb-4" /> Booting Command Dashboard Telemetry...
-    </div>
-  );
+  // LOADING STATE
+  if (!data) {
+    return (
+      <PageLayout>
+        <LoadingState message="Loading telemetry data..." />
+      </PageLayout>
+    );
+  }
 
-  // Width calculations for the pipeline progress bars
-  const pS1Width = '100%';
+  // Pipeline calculations (UNCHANGED)
   const pS2Width = data.pipeline.s1 > 0 ? `${(data.pipeline.s2 / data.pipeline.s1) * 100}%` : '0%';
   const pS3Width = data.pipeline.s1 > 0 ? `${(data.pipeline.s3 / data.pipeline.s1) * 100}%` : '0%';
   const dropOffS1toS2 = data.pipeline.s1 > 0 ? Math.round(((data.pipeline.s1 - data.pipeline.s2) / data.pipeline.s1) * 100) : 0;
 
   return (
-    <div className="space-y-6 pb-12 w-full animate-in fade-in duration-500">
+    <PageLayout>
       {/* HEADER */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900 flex items-center">
-            <BarChart3 className="w-7 h-7 mr-2 text-indigo-600" /> Command Dashboard
-          </h2>
-          <p className="text-gray-500 text-sm mt-1 font-medium">
-            Real-time operational visibility & bottleneck detection.
-          </p>
-        </div>
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center shadow-sm w-max">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-2 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
-          Telemetry Active
-        </div>
-      </div>
+      <PageHeader
+        title="Command Dashboard"
+        subtitle="Real-time operational visibility and bottleneck detection"
+        badge={
+          <Badge variant="success">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] mr-1.5 animate-pulse" />
+            Telemetry Active
+          </Badge>
+        }
+      />
 
-      {/* 🔥 A. IMMEDIATE ATTENTION PANEL */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex items-start shadow-sm cursor-pointer hover:bg-red-100 transition">
-          <AlertCircle className="w-8 h-8 text-red-600 mr-4 shrink-0" />
-          <div>
-            <h3 className="font-bold text-red-900">Untouched High-Score</h3>
-            <div className="flex items-end mt-1">
-              <span className="text-3xl font-black text-red-700 leading-none">{data.alerts.untouchedHighScores}</span>
-              <span className="text-sm text-red-600 font-bold ml-2 mb-1">Require Action</span>
-            </div>
-            <p className="text-xs text-red-800 mt-2 font-medium">Leads scoring &gt;80 stuck in 'New Lead' status.</p>
-          </div>
-        </div>
+      <PageContent>
+        {/* IMMEDIATE ATTENTION - Action Required Panel */}
+        <SectionHeader
+          title="Immediate Attention"
+          subtitle="Priority items requiring your action now"
+        />
 
-        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5 flex items-start shadow-sm cursor-pointer hover:bg-orange-100 transition">
-          <Zap className="w-8 h-8 text-orange-600 mr-4 shrink-0" />
-          <div>
-            <h3 className="font-bold text-orange-900">Hot Intent / Engaged</h3>
-            <div className="flex items-end mt-1">
-              <span className="text-3xl font-black text-orange-700 leading-none">{data.alerts.hotLeads}</span>
-              <span className="text-sm text-orange-600 font-bold ml-2 mb-1">Ready to Advance</span>
-            </div>
-            <p className="text-xs text-orange-800 mt-2 font-medium">Leads manually flagged as Hot in Engine 1.</p>
-          </div>
-        </div>
-
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start shadow-sm cursor-pointer hover:bg-amber-100 transition">
-          <AlertTriangle className="w-8 h-8 text-amber-600 mr-4 shrink-0" />
-          <div>
-            <h3 className="font-bold text-amber-900">Nurture Warnings / SLA</h3>
-            <div className="flex items-end mt-1">
-              <span className="text-3xl font-black text-amber-700 leading-none">{data.alerts.pausedNurture}</span>
-              <span className="text-sm text-amber-600 font-bold ml-2 mb-1">Overdue Actions</span>
-            </div>
-            <p className="text-xs text-amber-800 mt-2 font-medium">Engine 2 leads with overdue manual tasks.</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ⚡ C. PIPELINE BOTTLENECKS */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-5 flex items-center border-b pb-3">
-            <GitMerge className="w-5 h-5 mr-2 text-indigo-500" /> Pipeline Flow & Drop-offs
-          </h3>
-
-          <div className="space-y-4">
-            <div className="relative">
-              <div className="flex justify-between text-sm font-bold mb-1">
-                <span className="text-gray-700">Total Contacted (E1 + E3)</span>
-                <span className="text-indigo-600">{data.pipeline.s1} Leads</span>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <AlertCard
+            variant="error"
+            icon={<AlertCircle className="w-5 h-5" />}
+            title="Untouched High-Score Leads"
+            description={`${data.alerts.untouchedHighScores} leads scoring 80+ are stuck in 'New Lead' status. Assign and initiate contact immediately.`}
+            action={
+              <div className="flex items-baseline gap-2 mt-2 pt-3 border-t border-[#fecaca]">
+                <span className="text-3xl font-semibold text-[#b91c1c] tracking-tight">{data.alerts.untouchedHighScores}</span>
+                <span className="text-sm text-[#dc2626]">require action</span>
               </div>
-              <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
-                <div className="bg-indigo-400 h-4 rounded-full transition-all duration-1000" style={{ width: pS1Width }}></div>
-              </div>
-            </div>
+            }
+          />
 
-            <div className="flex justify-center -my-2 relative z-10">
-              <div className="bg-white border border-gray-200 text-[10px] font-bold text-gray-500 px-2 py-0.5 rounded-full">
-                {dropOffS1toS2}% Drop-off
+          <AlertCard
+            variant="warning"
+            icon={<Zap className="w-5 h-5" />}
+            title="Hot Intent / Engaged"
+            description="Leads manually flagged as Hot in Engine 1. Ready for immediate advancement."
+            action={
+              <div className="flex items-baseline gap-2 mt-2 pt-3 border-t border-[#fde68a]">
+                <span className="text-3xl font-semibold text-[#b45309] tracking-tight">{data.alerts.hotLeads}</span>
+                <span className="text-sm text-[#d97706]">ready to advance</span>
               </div>
-            </div>
+            }
+          />
 
-            <div className="relative">
-              <div className="flex justify-between text-sm font-bold mb-1">
-                <span className="text-gray-700">Demos / Meetings Scheduled</span>
-                <span className="text-indigo-600">{data.pipeline.s2} Leads</span>
+          <AlertCard
+            variant="warning"
+            icon={<AlertTriangle className="w-5 h-5" />}
+            title="Nurture Warnings / SLA"
+            description="Engine 2 leads with overdue manual tasks requiring attention."
+            action={
+              <div className="flex items-baseline gap-2 mt-2 pt-3 border-t border-[#fde68a]">
+                <span className="text-3xl font-semibold text-[#b45309] tracking-tight">{data.alerts.pausedNurture}</span>
+                <span className="text-sm text-[#d97706]">overdue actions</span>
               </div>
-              <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
-                <div className="bg-indigo-500 h-4 rounded-full transition-all duration-1000" style={{ width: pS2Width }}></div>
-              </div>
-            </div>
+            }
+          />
+        </div>
 
-            {data.pipeline.s2 > 0 && (data.pipeline.s3 / data.pipeline.s2) < 0.3 && (
-              <div className="flex justify-center -my-2 relative z-10">
-                <div className="bg-white border border-red-200 text-[10px] font-bold text-red-600 px-2 py-0.5 rounded-full shadow-sm">
-                  ⚠️ Bottleneck Detected
+        {/* TWO COLUMN LAYOUT */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Pipeline Flow */}
+          <Card padding="lg">
+            <CardHeader
+              title="Pipeline Flow"
+              subtitle="Lead progression through sales stages"
+              icon={<GitMerge className="w-4 h-4" />}
+            />
+
+            <div className="space-y-5">
+              {/* Stage 1 */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-[#475569]">Total Contacted (E1 + E3)</span>
+                  <span className="text-sm font-medium text-[#3b82f6]">{data.pipeline.s1} leads</span>
                 </div>
+                <ProgressBar value={100} color="blue" size="sm" />
               </div>
-            )}
 
-            <div className="relative pt-4">
-              <div className="flex justify-between text-sm font-bold mb-1">
-                <span className="text-gray-700 flex items-center"><Briefcase className="w-3.5 h-3.5 mr-1.5 text-emerald-500"/> Closed Won (E3 Onboarding)</span>
-                <span className="text-emerald-600">{data.pipeline.s3} Clients</span>
+              {/* Drop-off indicator */}
+              <div className="flex justify-center -my-1">
+                <Badge variant="neutral" size="sm">
+                  {dropOffS1toS2}% drop-off
+                </Badge>
               </div>
-              <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
-                <div className="bg-emerald-500 h-4 rounded-full transition-all duration-1000" style={{ width: pS3Width }}></div>
+
+              {/* Stage 2 */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-[#475569]">Demos / Meetings Scheduled</span>
+                  <span className="text-sm font-medium text-[#3b82f6]">{data.pipeline.s2} leads</span>
+                </div>
+                <ProgressBar value={data.pipeline.s1 > 0 ? (data.pipeline.s2 / data.pipeline.s1) * 100 : 0} color="blue" size="sm" />
+              </div>
+
+              {/* Bottleneck warning */}
+              {data.pipeline.s2 > 0 && (data.pipeline.s3 / data.pipeline.s2) < 0.3 && (
+                <div className="flex justify-center -my-1">
+                  <Badge variant="error" size="sm">
+                    Bottleneck detected
+                  </Badge>
+                </div>
+              )}
+
+              {/* Stage 3 */}
+              <div className="pt-4 border-t border-[#f1f5f9]">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-[#475569] flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-[#22c55e]" />
+                    Closed Won (E3 Onboarding)
+                  </span>
+                  <span className="text-sm font-medium text-[#22c55e]">{data.pipeline.s3} clients</span>
+                </div>
+                <ProgressBar value={data.pipeline.s1 > 0 ? (data.pipeline.s3 / data.pipeline.s1) * 100 : 0} color="green" size="sm" />
               </div>
             </div>
-          </div>
+          </Card>
+
+          {/* System Intelligence */}
+          <Card padding="lg">
+            <CardHeader
+              title="System Intelligence"
+              subtitle="Automated insights and recommendations"
+              icon={<MessageSquare className="w-4 h-4" />}
+            />
+
+            <div className="space-y-3">
+              {data.alerts.untouchedHighScores > 0 && (
+                <AlertCard
+                  variant="error"
+                  icon={<Target className="w-4 h-4" />}
+                  title="Leakage Warning"
+                  description={`You have ${data.alerts.untouchedHighScores} high-value leads sitting unworked. Agents need to claim and initiate contact immediately.`}
+                />
+              )}
+
+              {data.perf.nurture.reactivation > 0 && (
+                <AlertCard
+                  variant="info"
+                  icon={<RefreshCw className="w-4 h-4" />}
+                  title="Nurture System Success"
+                  description={`Engine 2 has successfully reactivated ${data.perf.nurture.reactivation} leads. The automated sequences are generating active pipeline volume.`}
+                />
+              )}
+
+              {data.pipeline.s2 > 0 && (data.pipeline.s3 / data.pipeline.s2) < 0.2 ? (
+                <AlertCard
+                  variant="info"
+                  icon={<AlertCircle className="w-4 h-4" />}
+                  title="Conversion Bottleneck"
+                  description="High volume of Demos happening, but low transition to E3 Onboarding. Review your presentation scripts and closing offers."
+                />
+              ) : (
+                <AlertCard
+                  variant="success"
+                  icon={<CheckCircle className="w-4 h-4" />}
+                  title="Pipeline Healthy"
+                  description="Lead progression from Demo to E3 Onboarding is operating within normal margins. Keep pushing volume."
+                />
+              )}
+            </div>
+          </Card>
         </div>
 
-        {/* 🧠 SMART INSIGHTS LAYER */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 flex flex-col">
-          <h3 className="text-lg font-bold text-gray-800 mb-5 flex items-center border-b pb-3">
-            <MessageSquare className="w-5 h-5 mr-2 text-indigo-500" /> System Intelligence
-          </h3>
-
-          <div className="flex-1 space-y-4">
-            {data.alerts.untouchedHighScores > 0 && (
-                <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-                <h4 className="font-bold text-red-900 text-sm flex items-center">
-                    <Target className="w-4 h-4 mr-2" /> Leakage Warning
-                </h4>
-                <p className="text-sm text-red-800 mt-2 font-medium">
-                    You have {data.alerts.untouchedHighScores} high-value leads sitting completely unworked in Engine 1. Agents need to claim and initiate contact immediately.
-                </p>
-                </div>
-            )}
-
-            {data.perf.nurture.reactivation > 0 && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                <h4 className="font-bold text-blue-900 text-sm flex items-center">
-                    <RefreshCw className="w-4 h-4 mr-2" /> Nurture System Success
-                </h4>
-                <p className="text-sm text-blue-800 mt-2 font-medium">
-                    Engine 2 has successfully reactivated {data.perf.nurture.reactivation} leads. The automated sequences are generating active pipeline volume.
-                </p>
-                </div>
-            )}
-
-            {data.pipeline.s2 > 0 && (data.pipeline.s3 / data.pipeline.s2) < 0.2 ? (
-                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
-                <h4 className="font-bold text-indigo-900 text-sm flex items-center">
-                    <AlertCircle className="w-4 h-4 mr-2" /> Conversion Bottleneck
-                </h4>
-                <p className="text-sm text-indigo-800 mt-2 font-medium">
-                    High volume of Demos happening, but low transition to E3 Onboarding. Review your presentation scripts and closing offers.
-                </p>
-                </div>
-            ) : (
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                <h4 className="font-bold text-emerald-900 text-sm flex items-center">
-                    <CheckCircle className="w-4 h-4 mr-2" /> Pipeline Healthy
-                </h4>
-                <p className="text-sm text-emerald-800 mt-2 font-medium">
-                    Lead progression from Demo to E3 Onboarding is operating within normal acceptable margins. Keep pushing volume.
-                </p>
-                </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================================= */}
-      {/* 🚀 CORE PERFORMANCE METRICS (THE DECISION MATRIX) */}
-      {/* ========================================================= */}
-
-      <div className="mt-10 mb-4">
-        <h2 className="text-2xl font-black text-gray-900 flex items-center">
-          <Filter className="w-6 h-6 mr-2 text-indigo-600" /> Core Performance Metrics
-        </h2>
-        <p className="text-gray-500 text-sm mt-1 font-medium italic">
-          "Where is money leaking?" — Operational Data Matrix
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* A. Lead Flow Metrics */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">
-            A. Lead Flow (System Health)
-          </h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 font-medium text-sm">Total DB Leads</span>
-              <span className="font-bold text-gray-900">{data.perf.leadFlow.total}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 font-medium text-sm">Leads Assigned</span>
-              <span className="font-bold text-gray-900">{data.perf.leadFlow.assigned}</span>
-            </div>
-            <div className="flex justify-between items-center pt-2 border-t border-dashed">
-              <span className="text-indigo-600 font-bold text-sm">Active in E1 (Sales)</span>
-              <span className="font-black text-indigo-600">{data.perf.leadFlow.e1}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-blue-600 font-bold text-sm">Sleeping in E2 (Nurture)</span>
-              <span className="font-black text-blue-600">{data.perf.leadFlow.e2}</span>
-            </div>
-            <div className="flex justify-between items-center pt-2 border-t border-dashed">
-              <span className="text-emerald-600 font-bold text-sm flex items-center"><Briefcase className="w-3.5 h-3.5 mr-1.5"/> Won in E3 (Onboarding)</span>
-              <span className="font-black text-emerald-600 text-lg">{data.perf.leadFlow.e3}</span>
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-4 italic">Purpose: Are you feeding the system enough?</p>
+        {/* PERFORMANCE METRICS */}
+        <div className="mb-4">
+          <SectionHeader
+            title="Core Performance Metrics"
+            subtitle="Where is money leaking? — Operational Data Matrix"
+          />
         </div>
 
-        {/* B. Conversion Metrics */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">
-            B. Conversion (Revenue Signal)
-          </h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 font-medium text-sm">Overall DB Conv. Rate</span>
-              <span className="font-bold text-gray-900">{data.perf.conversion.overall}</span>
-            </div>
-            <div className="flex justify-between items-center pt-2 border-t border-dashed">
-              <span className="text-emerald-600 font-bold text-sm">Engine 1 → Closed Won</span>
-              <span className="font-black text-emerald-600 text-lg">{data.perf.conversion.e1Won}</span>
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-4 italic">Purpose: Is your closing system actually working?</p>
+        {/* Metrics Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <MetricCard
+            title="Total Leads"
+            value={data.perf.leadFlow.total}
+            subtitle={`${data.perf.leadFlow.assigned} assigned`}
+            accentColor="blue"
+            icon={<Users className="w-5 h-5" />}
+          />
+          <MetricCard
+            title="Active Sales (E1)"
+            value={data.perf.leadFlow.e1}
+            subtitle="In pipeline"
+            accentColor="blue"
+            icon={<TrendingUp className="w-5 h-5" />}
+          />
+          <MetricCard
+            title="Nurture Bank (E2)"
+            value={data.perf.leadFlow.e2}
+            subtitle="Long-term prospects"
+            accentColor="cyan"
+            icon={<Clock className="w-5 h-5" />}
+          />
+          <MetricCard
+            title="Won (E3)"
+            value={data.perf.leadFlow.e3}
+            subtitle="Active onboarding"
+            accentColor="green"
+            icon={<Briefcase className="w-5 h-5" />}
+          />
         </div>
 
-        {/* E. Execution Speed */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">
-            E. Execution Speed
-          </h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 font-medium text-sm">Avg Time to 1st Contact</span>
-              <span className="font-bold text-gray-900">
-                &lt; 2 hrs <span className="text-[10px] text-gray-400 font-normal ml-1">(Target)</span>
-              </span>
+        {/* Detailed Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Lead Flow */}
+          <Card>
+            <div className="mb-4">
+              <Badge variant="neutral" size="sm">Lead Flow</Badge>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 font-medium text-sm">Avg Time per Stage</span>
-              <span className="font-bold text-gray-900">
-                3.4 days
-              </span>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#64748b]">Total in Database</span>
+                <span className="text-sm font-medium text-[#0f172a]">{data.perf.leadFlow.total}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#64748b]">Assigned to Agents</span>
+                <span className="text-sm font-medium text-[#0f172a]">{data.perf.leadFlow.assigned}</span>
+              </div>
+              <div className="h-px bg-[#f1f5f9] my-2" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-[#3b82f6]">Engine 1 (Sales)</span>
+                <span className="text-sm font-semibold text-[#3b82f6]">{data.perf.leadFlow.e1}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-[#06b6d4]">Engine 2 (Nurture)</span>
+                <span className="text-sm font-semibold text-[#06b6d4]">{data.perf.leadFlow.e2}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-[#22c55e] flex items-center gap-1">
+                  <Briefcase className="w-3 h-3" />
+                  Engine 3 (Won)
+                </span>
+                <span className="text-sm font-semibold text-[#22c55e]">{data.perf.leadFlow.e3}</span>
+              </div>
             </div>
-            <div className="flex justify-between items-center pt-2 border-t border-dashed">
-              <span className="text-orange-600 font-bold text-sm">Avg Deal Cycle</span>
-              <span className="font-black text-orange-600">
-                14 days
-              </span>
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-4 italic">Purpose: Are you moving fast enough?</p>
-        </div>
+            <p className="text-xs text-[#94a3b8] mt-4 pt-3 border-t border-[#f1f5f9]">
+              System health: Are you feeding the pipeline enough?
+            </p>
+          </Card>
 
-        {/* D. Nurture Effectiveness */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">
-            D. Nurture Effectiveness (E2)
-          </h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 font-medium text-sm">Total in Nurture Bank</span>
-              <span className="font-bold text-gray-900">{data.perf.nurture.total}</span>
+          {/* Conversion */}
+          <Card>
+            <div className="mb-4">
+              <Badge variant="neutral" size="sm">Conversion</Badge>
             </div>
-            {/* Added gap-2 here! */}
-            <div className="flex justify-between items-center pt-2 border-t border-dashed gap-2">
-              <span className="text-indigo-600 font-bold text-sm flex items-center">
-                Reactivations (E2 <ArrowRight className="w-3 h-3 mx-1" /> E1)
-              </span>
-              <span className="font-black text-indigo-600 text-lg">{data.perf.nurture.reactivation}</span>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#64748b]">Overall Conversion</span>
+                <span className="text-sm font-medium text-[#0f172a]">{data.perf.conversion.overall}</span>
+              </div>
+              <div className="h-px bg-[#f1f5f9] my-2" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-[#22c55e]">E1 → Closed Won</span>
+                <span className="text-lg font-semibold text-[#22c55e]">{data.perf.conversion.e1Won}</span>
+              </div>
             </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-4 italic">Purpose: Is nurture working, or just sending messages?</p>
-        </div>
+            <p className="text-xs text-[#94a3b8] mt-4 pt-3 border-t border-[#f1f5f9]">
+              Revenue signal: Is your closing system working?
+            </p>
+          </Card>
 
-        {/* F. Agent Effectiveness */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">
-            F. Agent Effectiveness (Top Closers)
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
-            {data.perf.agents.map((agent, i) => (
-              <div key={i} className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div className="font-black text-sm text-gray-900 mb-3 flex items-center truncate">
-                  <Users className="w-4 h-4 mr-2 text-indigo-500 shrink-0" /> {agent.name}
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="flex flex-col">
-                    <span className="text-gray-500 font-bold uppercase tracking-widest text-[9px] mb-1">Leads Handled</span> 
-                    <strong className="text-gray-900 text-base leading-none">{agent.handled}</strong>
+          {/* Execution Speed */}
+          <Card>
+            <div className="mb-4">
+              <Badge variant="neutral" size="sm">Execution Speed</Badge>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#64748b]">Avg Time to 1st Contact</span>
+                <span className="text-sm font-medium text-[#0f172a]">&lt; 2 hrs <span className="text-[#94a3b8] font-normal">(target)</span></span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#64748b]">Avg Time per Stage</span>
+                <span className="text-sm font-medium text-[#0f172a]">3.4 days</span>
+              </div>
+              <div className="h-px bg-[#f1f5f9] my-2" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-[#f59e0b]">Avg Deal Cycle</span>
+                <span className="text-sm font-semibold text-[#f59e0b]">14 days</span>
+              </div>
+            </div>
+            <p className="text-xs text-[#94a3b8] mt-4 pt-3 border-t border-[#f1f5f9]">
+              Velocity: Are you moving fast enough?
+            </p>
+          </Card>
+
+          {/* Nurture Effectiveness */}
+          <Card>
+            <div className="mb-4">
+              <Badge variant="neutral" size="sm">Nurture Effectiveness</Badge>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#64748b]">Total in Nurture Bank</span>
+                <span className="text-sm font-medium text-[#0f172a]">{data.perf.nurture.total}</span>
+              </div>
+              <div className="h-px bg-[#f1f5f9] my-2" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-[#3b82f6] flex items-center">
+                  Reactivations <ArrowRight className="w-3 h-3 mx-1" /> E1
+                </span>
+                <span className="text-lg font-semibold text-[#3b82f6]">{data.perf.nurture.reactivation}</span>
+              </div>
+            </div>
+            <p className="text-xs text-[#94a3b8] mt-4 pt-3 border-t border-[#f1f5f9]">
+              Quality: Is nurture generating pipeline or just sending messages?
+            </p>
+          </Card>
+
+          {/* Agent Effectiveness */}
+          <Card>
+            <div className="mb-4">
+              <Badge variant="neutral" size="sm">Top Closers</Badge>
+            </div>
+            <div className="space-y-3">
+              {data.perf.agents.map((agent, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#f8fafc] border border-[#f1f5f9]">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-[#eff6ff] flex items-center justify-center">
+                      <Users className="w-4 h-4 text-[#3b82f6]" />
+                    </div>
+                    <span className="text-sm font-medium text-[#0f172a]">{agent.name}</span>
                   </div>
-                  <div className="flex flex-col border-l border-slate-200 pl-3">
-                    <span className="text-gray-500 font-bold uppercase tracking-widest text-[9px] mb-1">Win Rate</span> 
-                    <strong className="text-emerald-600 text-base leading-none">{agent.conv}</strong>
+                  <div className="flex items-center gap-4 text-right">
+                    <div>
+                      <p className="text-xs text-[#94a3b8]">Handled</p>
+                      <p className="text-sm font-medium text-[#0f172a]">{agent.handled}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#94a3b8]">Win Rate</p>
+                      <p className="text-sm font-medium text-[#22c55e]">{agent.conv}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          </Card>
 
-        {/* G. Campaign / Import Tag Performance */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">
-            G. Lead Source Analytics
-          </h3>
-          <div className="space-y-3">
-            {data.perf.campaigns.map((camp, i) => (
-              <div key={i} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div className="min-w-0 pr-3">
-                  <div className="font-bold text-xs text-gray-800 flex items-center truncate">
-                    <Tag className="w-3 h-3 mr-1.5 text-indigo-400 shrink-0" /> <span className="truncate">{camp.tag}</span>
+          {/* Lead Sources */}
+          <Card>
+            <div className="mb-4">
+              <Badge variant="neutral" size="sm">Lead Sources</Badge>
+            </div>
+            <div className="space-y-2">
+              {data.perf.campaigns.map((camp, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#f8fafc] border border-[#f1f5f9]">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-3.5 h-3.5 text-[#94a3b8]" />
+                    <div>
+                      <p className="text-sm font-medium text-[#0f172a]">{camp.tag}</p>
+                      <p className="text-xs text-[#94a3b8]">{camp.leads} leads</p>
+                    </div>
                   </div>
-                  <div className="text-[10px] font-bold text-gray-500 mt-1 uppercase tracking-widest">
-                    {camp.leads} Leads
-                  </div>
+                  <span className="text-sm font-medium text-[#22c55e]">{camp.conv}</span>
                 </div>
-                <div className="font-black text-emerald-600 text-lg shrink-0">
-                  {camp.conv}
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 mt-4 italic">Purpose: Which sources bring real deals?</p>
+              ))}
+            </div>
+            <p className="text-xs text-[#94a3b8] mt-4 pt-3 border-t border-[#f1f5f9]">
+              Attribution: Which sources bring real deals?
+            </p>
+          </Card>
         </div>
-      </div>
-    </div>
+      </PageContent>
+    </PageLayout>
   );
 }
