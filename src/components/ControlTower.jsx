@@ -1,27 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Activity,
-  Users,
-  Zap,
-  Clock,
-  AlertTriangle,
-  Target,
-  GitMerge,
-  CheckCircle,
-  AlertCircle,
-  BarChart3,
-  MessageSquare,
-  Filter,
-  ArrowRight,
-  RefreshCw,
-  Tag,
-  Briefcase,
-  TrendingUp,
-} from 'lucide-react';
+import { Activity, Users, Zap, Clock, TriangleAlert as AlertTriangle, Target, GitMerge, CircleCheck as CheckCircle, CircleAlert as AlertCircle, ChartBar as BarChart3, MessageSquare, ListFilter as Filter, ArrowRight, RefreshCw, Tag, Briefcase, TrendingUp } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
-  PageLayout,
   PageHeader,
   PageContent,
   Card,
@@ -155,9 +136,9 @@ export default function ControlTower() {
   // LOADING STATE
   if (!data) {
     return (
-      <PageLayout>
+      <div className="min-h-screen flex items-center justify-center bg-[#f8fafc]">
         <LoadingState message="Loading telemetry data..." />
-      </PageLayout>
+      </div>
     );
   }
 
@@ -167,7 +148,7 @@ export default function ControlTower() {
   const dropOffS1toS2 = data.pipeline.s1 > 0 ? Math.round(((data.pipeline.s1 - data.pipeline.s2) / data.pipeline.s1) * 100) : 0;
 
   return (
-    <PageLayout>
+    <>
       {/* HEADER */}
       <PageHeader
         title="Command Dashboard"
@@ -534,6 +515,6 @@ export default function ControlTower() {
           </Card>
         </div>
       </PageContent>
-    </PageLayout>
+    </>
   );
 }

@@ -30,16 +30,16 @@ export function PageHeader({
   badge?: React.ReactNode;
 }) {
   return (
-    <div className="bg-white border-b border-[#e2e8f0] px-8 py-6">
-      <div className="max-w-7xl mx-auto flex items-start justify-between gap-4">
+    <div className="bg-white border-b border-[#e2e8f0] px-6 py-5 lg:px-8">
+      <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold text-[#0f172a] tracking-tight">{title}</h1>
+              <h1 className="text-lg font-semibold text-[#0f172a] tracking-tight">{title}</h1>
               {badge}
             </div>
             {subtitle && (
-              <p className="text-sm text-[#64748b] mt-1">{subtitle}</p>
+              <p className="text-sm text-[#64748b] mt-0.5">{subtitle}</p>
             )}
           </div>
         </div>
@@ -61,7 +61,7 @@ export function PageContent({
   className?: string;
 }) {
   return (
-    <div className={`px-8 py-6 max-w-7xl mx-auto ${className}`}>
+    <div className={`px-6 py-6 lg:px-8 lg:py-6 ${className}`}>
       {children}
     </div>
   );

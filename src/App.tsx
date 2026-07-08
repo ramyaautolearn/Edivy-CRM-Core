@@ -220,40 +220,39 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen bg-[#f8fafc]">
       {/* SIDEBAR */}
-      <div className="w-64 bg-[#0B0F19] flex flex-col shadow-2xl z-20">
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="text-xl font-black text-white flex items-center tracking-tight">
-            <Shield className="w-5 h-5 text-indigo-500 mr-2" /> CRM Core
-          </h1>
-        </div>
-
-        <div className="p-4 border-b border-slate-800 bg-slate-900/50">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-            Logged in as
-          </p>
-          <div className="flex items-center">
-            <div
-              className={`w-2 h-2 rounded-full mr-2 ${
-                user.role === 'admin' ? 'bg-emerald-500' : 'bg-blue-500'
-              }`}
-            ></div>
-            <p className="text-sm font-bold text-white truncate pr-2">{user.name}</p>
+      <aside className="w-[260px] bg-[#0f172a] flex flex-col border-r border-[#1e293b] shrink-0">
+        <div className="px-5 py-4 border-b border-[#1e293b]">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-[#3b82f6] flex items-center justify-center">
+              <Shield className="w-4 h-4 text-white" />
+            </div>
+            <h1 className="text-base font-semibold text-white tracking-tight">Edivy</h1>
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        <div className="px-5 py-3 border-b border-[#1e293b]">
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                user.role === 'admin' ? 'bg-[#22c55e]' : 'bg-[#3b82f6]'
+              }`}
+            />
+            <p className="text-xs text-[#94a3b8] truncate">{user.name}</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 py-3 px-3 space-y-0.5 overflow-y-auto">
           {user.role === 'admin' && (
             <>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 mt-2 px-3">
+              <p className="text-[10px] font-medium text-[#475569] uppercase tracking-wider px-2 py-2">
                 Executive
               </p>
-              
-              {/* NEW: E0 Prospecting Desk Sidebar Link */}
+
               <SidebarItem
                 icon={<Radar />}
-                label="E0 Prospecting Desk"
+                label="Prospecting Desk"
                 id="e0-prospecting"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
@@ -265,14 +264,14 @@ export default function App() {
                 id="e2-command-center"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
-              />  
+              />
               <SidebarItem
                 icon={<Briefcase />}
-                label="Onboarding Desk"
+                label="Onboarding"
                 id="onboarding-desk"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
-              />                   
+              />
               <SidebarItem
                 icon={<LayoutDashboard />}
                 label="Control Tower"
@@ -282,13 +281,13 @@ export default function App() {
               />
               <SidebarItem
                 icon={<Calendar />}
-                label="Meeting Calendar"
+                label="Calendar"
                 id="meeting-calendar"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
 
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 mt-6 px-3">
+              <p className="text-[10px] font-medium text-[#475569] uppercase tracking-wider px-2 py-2 mt-4">
                 Execution
               </p>
             </>
@@ -296,7 +295,7 @@ export default function App() {
 
           <SidebarItem
             icon={<Users />}
-            label="Agent Workspace"
+            label="Workspace"
             id="agent-workspace"
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -304,61 +303,61 @@ export default function App() {
 
           {user.role === 'admin' && (
             <>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 mt-6 px-3">
-                System Builders
+              <p className="text-[10px] font-medium text-[#475569] uppercase tracking-wider px-2 py-2 mt-4">
+                Builders
               </p>
               <SidebarItem
                 icon={<Target />}
-                label="Lead Scoring Engine"
+                label="Lead Engine"
                 id="lead-engine"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
                 icon={<GitMerge />}
-                label="E1: Pipeline Builder"
+                label="Pipeline"
                 id="pipeline-builder"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
                 icon={<Droplet />}
-                label="E2: Nurture Drops"
+                label="Nurture"
                 id="nurture-builder"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
                 icon={<Settings />}
-                label="E3: Onboarding Builder"
+                label="Onboarding Flow"
                 id="e3-builder"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
                 icon={<BookOpen />}
-                label="Smart Scripts"
+                label="Scripts"
                 id="script-library"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
                 icon={<FolderOpen />}
-                label="Media Vault"
+                label="Media"
                 id="media-vault"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
                 icon={<UserCog />}
-                label="Agent Management"
+                label="Agents"
                 id="admin-agents"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
               <SidebarItem
                 icon={<Activity />}
-                label="Activity & Timesheets"
+                label="Activity"
                 id="agent-analytics"
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
@@ -367,22 +366,20 @@ export default function App() {
           )}
         </nav>
 
-        <div className="p-4 border-t border-slate-800">
+        <div className="px-3 py-3 border-t border-[#1e293b]">
           <button
             onClick={() => setUser(null)}
-            className="flex items-center w-full px-4 py-3 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors"
+            className="flex items-center w-full px-3 py-2 text-sm font-medium text-[#64748b] hover:text-white hover:bg-[#1e293b] rounded-lg transition-colors"
           >
-            <LogOut className="w-4 h-4 mr-3" /> Sign Out
+            <LogOut className="w-4 h-4 mr-3" /> Sign out
           </button>
         </div>
-      </div>
+      </aside>
 
-      {/* MAIN CONTENT AREA */}
-      <div className="flex-1 overflow-y-auto bg-slate-50/50">
-        <div className="p-8 max-w-7xl mx-auto">
-          {renderContent()}
-        </div>
-      </div>
+      {/* MAIN CONTENT AREA - Full width, no max-width restriction */}
+      <main className="flex-1 overflow-y-auto bg-[#f8fafc]">
+        {renderContent()}
+      </main>
     </div>
   );
 }
@@ -393,18 +390,18 @@ function SidebarItem({ icon, label, id, activeTab, setActiveTab }) {
   return (
     <button
       onClick={() => setActiveTab(id)}
-      className={`w-full flex items-center px-3 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 ${
+      className={`w-full flex items-center px-2 py-2 rounded-lg text-sm font-medium transition-colors ${
         isActive
-          ? 'bg-indigo-600 text-white shadow-md'
-          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+          ? 'bg-[#3b82f6] text-white'
+          : 'text-[#94a3b8] hover:text-[#f1f5f9] hover:bg-[#1e293b]'
       }`}
     >
-      <div className={`mr-3 ${isActive ? 'text-white' : 'text-slate-500'}`}>
+      <span className={`mr-2.5 ${isActive ? 'text-white' : 'text-[#64748b]'}`}>
         {React.isValidElement(icon)
-          ? React.cloneElement(icon, { size: 18 })
+          ? React.cloneElement(icon, { size: 16 })
           : null}
-      </div>
-      {label}
+      </span>
+      <span className="truncate">{label}</span>
     </button>
   );
 }
